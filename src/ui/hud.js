@@ -24,7 +24,7 @@ function getActionLabel(kind, html) {
   return 'Acción';
 }
 
-export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, onMenu }) {
+export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, onMenu, onMap }) {
   root.innerHTML = `
     <div class="touch">
       <div class="stick">
@@ -55,6 +55,7 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
       <div class="minimap-shine"></div>
     </div>
     <div class="layer" aria-live="polite"><span class="lv" data-layer-dots></span><b data-layer-name></b></div>
+    <div class="boost" data-boost aria-live="polite"></div>
     <div class="pill goalpill" data-goalpill></div>
     <p class="hint" data-hint></p>
     <div class="topright">
@@ -63,6 +64,11 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
           <line x1="4" y1="7" x2="20" y2="7"></line>
           <line x1="4" y1="12" x2="20" y2="12"></line>
           <line x1="4" y1="17" x2="20" y2="17"></line>
+        </svg>
+      </button>
+      <button class="hbtn menu map" data-act="map" aria-label="Abrir mapa del nivel">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"></path><path d="M9 4v14M15 6v14"></path>
         </svg>
       </button>
       <button class="hbtn mix" data-act="blueprint" aria-label="Abrir mezclador de gemas">
@@ -125,15 +131,24 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
   const toastEl = $('.toast'), bubbleEl = $('.bubble'), actionBtnEl = $('.action-btn'), fadeEl = $('.fade'), winEl = $('.win'), depEl = $('.dep');
   let toastTimer = 0, bubbleKey = '', dep = null;
 
-  // Acciones táctiles inmediatas: responde en pointerdown para 0 latencia táctil
-  bubbleEl.addEventListener('pointerdown', (e) => { e.preventDefault(); onInteract(); });
-  actionBtnEl.addEventListener('pointerdown', (e) => { e.preventDefault(); onInteract(); });
+  const handleAct = (act, e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    ({ blueprint: onBlueprint, interact: onInteract, restart: onRestart, next: onNext, menu: onMenu, map: onMap })[act]?.();
+  };
+
+  // Soporte multitáctil inmediato: responder en pointerdown permite tocar Mezclar o Interactuar mientras se camina con el joystick
+  root.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    handleAct(b.dataset.act, e);
+  }, { passive: false });
 
   root.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
-    if (b.dataset.act === 'interact' && e.detail !== 0) return; // ya se atendió en pointerdown
-    ({ blueprint: onBlueprint, interact: onInteract, restart: onRestart, next: onNext, menu: onMenu })[b.dataset.act]?.();
+    if (e.detail !== 0) return; // Ya ejecutado en pointerdown
+    handleAct(b.dataset.act, e);
   });
 
   // --- Ventanita de depósito ---
@@ -144,13 +159,28 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
     root.querySelector('[data-dep="ok"]').disabled = dep.max < dep.min;
     $('[data-dep-split]').textContent = dep.split(dep.n);
   };
-  depEl.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-dep]');
+
+  const handleDep = (b, e) => {
     if (!b || !dep) return;
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
     const v = b.dataset.dep;
     if (v === 'cancel') return hud.closeDeposit(true);
     if (v === 'ok') { const d = dep; hud.closeDeposit(); return d.onConfirm(d.n); }
     dep.n = Math.min(dep.max, Math.max(dep.min, dep.n + Number(v))); depRender();
+  };
+
+  depEl.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('[data-dep]');
+    if (!b) return;
+    handleDep(b, e);
+  }, { passive: false });
+
+  depEl.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-dep]');
+    if (!b) return;
+    if (e.detail !== 0) return;
+    handleDep(b, e);
   });
 
   const hud = {
@@ -164,7 +194,7 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
     },
     // summary: { exact:[{short,goal,done}], groups:[{type,total,got,parts:[{short,n}],done}], progress:{done,total} }
     setSummary(sm) {
-      const multi = sm.progress.total > 1;
+      const multi = (sm.scope ?? sm.progress).total > 1;
       const exact = sm.exact.map((t) => `
         <span class="tt${t.done ? ' done' : ''}">
           ${multi && t.short ? `<small class="t-short">${t.short}</small>` : ''}
@@ -180,15 +210,24 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
           ${g.done ? '<b class="chk">✓</b>' : ''}
         </span>
       `).join('');
-      const prog = multi
-        ? `<span class="prog">${totemIconSvg}<b>${sm.progress.done}/${sm.progress.total}</b></span>`
-        : `<span class="prog single">${totemIconSvg}</span>`;
+      // El encabezado muestra SOLO lo que pide la capa actual (sm.scope); el panorama global está en el mapa.
+      const sc = sm.scope ?? sm.progress;
+      const prog = sc.total > 0
+        ? `<span class="prog">${totemIconSvg}<b>${sc.done}/${sc.total}</b></span>`
+        : `<span class="prog single">${totemIconSvg}</span><small class="t-none">Sin tótems en esta capa</small>`;
       $('[data-goalpill]').innerHTML = prog + groups + exact;
     },
     // Capa actual (pradera / bosque / profundo): nombre + indicador de altura con un punto por capa.
     setLayer(name, index, total) {
       $('[data-layer-name]').textContent = name;
       $('[data-layer-dots]').innerHTML = Array.from({ length: total }, (_, i) => `<i${i === index ? ' class="on"' : ''}></i>`).join('');
+    },
+    // Ritmo de carrera: porcentaje de velocidad extra (0 = oculto).
+    setBoost(pct) {
+      const el = $('[data-boost]');
+      el.classList.toggle('on', pct > 0);
+      el.classList.toggle('max', pct >= 30);
+      if (pct > 0) el.textContent = `⚡ +${pct} %`;
     },
     setHint(text) { $('[data-hint]').textContent = text ?? ''; },
     // Burbuja anclada al objeto y botón contextual de acción en esquina inferior derecha

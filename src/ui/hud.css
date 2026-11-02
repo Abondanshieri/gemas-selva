@@ -7,11 +7,11 @@
 /* ===== Capa táctil completa ===== */
 .touch { position: absolute; inset: 0; touch-action: none; pointer-events: auto; }
 
-/* ===== Joystick virtual visible en inferior izquierda (Ergonomía pulgar) ===== */
+/* ===== Joystick virtual flotante (oculto en reposo, aparece al tocar) ===== */
 .stick {
   position: absolute;
-  left: max(38px, calc(env(safe-area-inset-left) + 26px));
-  bottom: max(38px, calc(env(safe-area-inset-bottom) + 26px));
+  left: 0;
+  top: 0;
   width: 126px;
   height: 126px;
   border-radius: 50%;
@@ -27,8 +27,9 @@
     0 0 0 1px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  opacity: 0.92;
-  transition: opacity .2s, border-color .2s, box-shadow .25s, transform .2s;
+  opacity: 0;
+  transition: opacity .15s ease-out;
+  will-change: transform, opacity, left, top;
 }
 
 .stick.on {
@@ -39,7 +40,7 @@
     0 0 30px rgba(61, 220, 132, 0.45),
     inset 0 0 18px rgba(61, 220, 132, 0.3),
     inset 0 2px 4px rgba(255, 255, 255, 0.35);
-  transform: scale(1.03);
+  transform: scale(1.02);
 }
 
 .stick-ring {
@@ -681,8 +682,6 @@
   .stick {
     width: 114px;
     height: 114px;
-    left: max(28px, calc(env(safe-area-inset-left) + 18px));
-    bottom: max(26px, calc(env(safe-area-inset-bottom) + 18px));
   }
   .knob {
     width: 48px;
@@ -708,3 +707,21 @@
   .topright .mix { animation: none; }
   .knob { transition: none; }
 }
+
+/* Ritmo de carrera (+30 %) */
+.boost { position: absolute; right: max(12px, env(safe-area-inset-right)); top: calc(max(10px, env(safe-area-inset-top)) + 64px);
+  padding: 4px 11px; border-radius: 99px; background: #0e2218cc; border: 1.5px solid #ffffff22; font: 800 13px var(--font-h);
+  color: var(--cream); opacity: 0; transform: translateY(-6px); transition: opacity .2s, transform .2s; pointer-events: none !important; font-variant-numeric: tabular-nums; }
+.boost.on { opacity: 1; transform: none; }
+.boost.max { color: #0e2218; background: var(--d); border-color: #ffffff66; box-shadow: 0 0 14px #ffb93888; }
+
+.goalpill .t-none { opacity: .75; font-style: italic; }
+
+/* Chip de capa (bajo el minimapa) */
+.layer { position: absolute; left: max(24px, calc(env(safe-area-inset-left) + 16px)); top: calc(max(16px, calc(env(safe-area-inset-top) + 12px)) + 52px + 108px + 6px);
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px 4px 8px; border-radius: 99px; background: #0e2218cc; border: 1.5px solid #ffffff22;
+  font: 700 12px var(--font-h); pointer-events: none !important; z-index: 3; }
+.layer .lv { display: inline-flex; flex-direction: column; gap: 3px; }
+.layer .lv i { width: 9px; height: 5px; border-radius: 3px; background: #ffffff33; }
+.layer .lv i.on { background: var(--u); box-shadow: 0 0 6px var(--u); }
+@media (max-height: 360px) { .layer { top: calc(max(16px, calc(env(safe-area-inset-top) + 12px)) + 52px + 108px + 4px); } }

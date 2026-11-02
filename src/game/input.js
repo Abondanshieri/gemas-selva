@@ -1,4 +1,4 @@
-// Entrada unificada: joystick táctil visible (inferior izquierda), arrastre de cámara y teclado.
+// Entrada unificada: joystick dinámico flotante (mitad inferior izquierda), arrastre de cámara y teclado.
 export function createInput(layer, { onInteract, onBlueprint }) {
   const state = { x: 0, y: 0, lookX: 0, lookY: 0 };
   const keys = new Set();
@@ -9,30 +9,26 @@ export function createInput(layer, { onInteract, onBlueprint }) {
   layer.addEventListener('pointerdown', (e) => {
     if (e.target.closest('button')) return;
 
-    const rect = stick.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const dist = Math.hypot(e.clientX - centerX, e.clientY - centerY);
+    // Joystick flotante dinámico: aparece donde presiona el jugador en la mitad izquierda, mitad inferior
+    const inJoystickZone = e.clientX <= (innerWidth * 0.5) && e.clientY >= (innerHeight * 0.5);
 
-    const isMouse = e.pointerType === 'mouse';
-    // Con mouse: click dentro de la base del joystick (radio generoso)
-    // Con touch: toque en el joystick o en el cuadrante inferior izquierdo
-    const inTouchZone = !isMouse && (e.clientX < Math.max(260, innerWidth * 0.42) && e.clientY > innerHeight * 0.38);
-    const isStickHit = dist <= (rect.width * 0.75) || inTouchZone;
-
-    if (isStickHit && stickId === null) {
+    if (inJoystickZone && stickId === null) {
       stickId = e.pointerId;
-      origin = { x: centerX, y: centerY };
-      layer.setPointerCapture?.(e.pointerId);
+      origin = { x: e.clientX, y: e.clientY };
+
+      const rect = stick.getBoundingClientRect();
+      const halfW = (rect.width || 126) / 2;
+      const halfH = (rect.height || 126) / 2;
+      stick.style.left = `${origin.x - halfW}px`;
+      stick.style.top = `${origin.y - halfH}px`;
+      stick.style.bottom = 'auto';
+      stick.style.right = 'auto';
       stick.classList.add('on');
       knob.style.transition = 'none';
-
-      let dx = e.clientX - origin.x, dy = e.clientY - origin.y;
-      const d = Math.hypot(dx, dy);
-      if (d > R) { dx = (dx / d) * R; dy = (dy / d) * R; }
-      knob.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
-      state.x = dx / R;
-      state.y = -dy / R;
+      knob.style.transform = 'translate(0, 0)';
+      state.x = 0;
+      state.y = 0;
+      layer.setPointerCapture?.(e.pointerId);
     } else if (lookId === null) {
       lookId = e.pointerId;
       layer.setPointerCapture?.(e.pointerId);
@@ -59,7 +55,8 @@ export function createInput(layer, { onInteract, onBlueprint }) {
     if (e.pointerId === stickId) {
       stickId = null;
       origin = null;
-      state.x = state.y = 0;
+      state.x = 0;
+      state.y = 0;
       stick.classList.remove('on');
       knob.style.transition = 'transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
       knob.style.transform = 'translate(0, 0)';
