@@ -1,7 +1,45 @@
 /* Mapa global del nivel */
-.wmap { position: fixed; inset: 0; z-index: 7; display: grid; place-items: center; background: #0a1a12b8; backdrop-filter: blur(3px); pointer-events: auto !important;
-  padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+@keyframes expandFromMinimap {
+  0% {
+    opacity: 0;
+    transform: translate(-32vw, -22vh) scale(0.16);
+    border-radius: 50%;
+  }
+  60% {
+    opacity: 1;
+    border-radius: 32px;
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+    border-radius: 22px;
+  }
+}
+@keyframes fadeInBackdrop {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.wmap {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: #0a1a12cc;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: auto !important;
+  padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+}
 .wmap[hidden] { display: none; }
+.wmap:not([hidden]) {
+  animation: fadeInBackdrop 0.22s ease-out both;
+}
+.wmap:not([hidden]) .wm-win {
+  animation: expandFromMinimap 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
 .wm-win { display: grid; gap: 8px; padding: 10px 12px; max-height: 100%; max-width: 100%; border-radius: 22px; color: var(--cream, #f1ead2);
   background: linear-gradient(170deg, #1a3f2f, #112a1f); border: 1.5px solid #ffffff26; box-shadow: 0 18px 50px #000a, inset 0 1px 0 #ffffff18; }
 .wm-head { display: flex; align-items: center; gap: 10px; }

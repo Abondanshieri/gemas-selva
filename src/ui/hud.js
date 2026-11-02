@@ -40,19 +40,28 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
         </div>
       </div>
     </div>
-    <div class="pill inv" aria-label="Inventario de gemas">
+    <div class="pill inv" data-act="blueprint" role="button" tabindex="0" aria-label="Mochila de gemas · Toca para abrir mezclador">
+      <span class="pouch-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 10a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10Z"></path>
+          <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+          <circle cx="12" cy="14" r="2.2" fill="currentColor"></circle>
+        </svg>
+      </span>
       ${TYPES.map((t) => `
         <span class="it it-${t}">
           <span class="gem-slot">${miniGem(t)}</span>
           <b data-inv="${t}">0</b>
         </span>
       `).join('')}
+      <span class="pouch-tag" aria-hidden="true">Mezclar ✦</span>
     </div>
-    <div class="minimap" aria-hidden="true">
+    <div class="minimap" data-act="map" role="button" tabindex="0" aria-label="Minimapa · Toca para ver mapa ampliado">
       <div class="minimap-bezel"></div>
       <canvas width="208" height="208"></canvas>
       <div class="minimap-north"></div>
       <div class="minimap-shine"></div>
+      <div class="minimap-tag" aria-hidden="true">⤢ Mapa</div>
     </div>
     <div class="layer" aria-live="polite"><span class="lv" data-layer-dots></span><b data-layer-name></b></div>
     <div class="boost" data-boost aria-live="polite"></div>
@@ -65,21 +74,6 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
           <line x1="4" y1="12" x2="20" y2="12"></line>
           <line x1="4" y1="17" x2="20" y2="17"></line>
         </svg>
-      </button>
-      <button class="hbtn menu map" data-act="map" aria-label="Abrir mapa del nivel">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"></path><path d="M9 4v14M15 6v14"></path>
-        </svg>
-      </button>
-      <button class="hbtn mix" data-act="blueprint" aria-label="Abrir mezclador de gemas">
-        <span class="mix-icon">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2L3 9l9 13 9-13-9-7z"></path>
-            <path d="M3 9h18"></path>
-            <path d="M12 2v20"></path>
-          </svg>
-        </span>
-        <span class="mix-text">Mezclar</span>
       </button>
     </div>
     <button class="bubble" data-act="interact" aria-label="Interactuar"></button>
