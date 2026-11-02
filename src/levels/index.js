@@ -27,7 +27,7 @@ const level1 = {
   id: 1,
   name: 'La pradera alta',
   topic: 'Descomponer',
-  hint: 'El tótem pide 5 U, pero solo ves una D… ¿y si la descompones? Sube a la pradera por la rampa.',
+  hint: 'El tótem pide 5 U, pero solo ves una D… ¿y si la descompones? Sube a la pradera por la rampa. Camina sin parar y ganas +30 % de velocidad. Ojo: bajar de un acantilado es caerse.',
   start: {},
   firstScene: 'mundo',
   scenes: [{
@@ -98,26 +98,28 @@ const level4 = {
   id: 4,
   name: 'El gran río',
   topic: 'Capas y río',
-  hint: 'Un río cae en cascada por las tres capas. En cada capa hay un aro para cruzarlo y un tótem en cada orilla. Las rampas están en orillas opuestas.',
+  hint: 'Cada capa pide 4 U entre sus dos tótems; tú eliges cómo repartirlas. Recoge gemas en todas las capas y descompón una D en el mezclador. Cruza el río con los aros.',
   start: {},
   firstScene: 'mundo',
+  sums: ['pradera', 'bosque', 'profundo'].map((id) => ({ id, type: 'U', total: 4, minEach: 0 })),
   scenes: [{
     id: 'mundo', name: 'Mundo', seed: 45, radius: 50, bounds: 47, playerStart: [12, -9],
     zones: [{ ...PRADERA, z1: -16 }, { ...BOSQUE, z1: 16 }, { ...PROFUNDO, z1: 60 }],
     ramps: [{ boundary: 0, x: 20 }, { boundary: 1, x: -20 }],
     rivers: [river([-32, 0, 32])],
     gems: [
-      { type: 'D', pos: [16, -28] }, { type: 'D', pos: [30, -24] }, { type: 'U', pos: [-28, -30] },   // pradera
-      { type: 'U', pos: [30, -8] }, { type: 'U', pos: [16, 9] }, { type: 'D', pos: [-14, 10] },        // bosque
-      { type: 'C', pos: [-14, 36] }, { type: 'D', pos: [32, 28] },                                     // bosque profundo
+      { type: 'D', pos: [16, -28] },      // pradera (este)
+      { type: 'U', pos: [30, -8] },       // bosque (este)
+      { type: 'D', pos: [-14, 36] },      // bosque profundo (oeste)
+      { type: 'U', pos: [32, 28] },       // bosque profundo (este)
     ],
-    totems: [
-      { id: 'pO', short: 'O', label: 'Pradera · oeste', pos: [-14, -38], goal: { D: 2 } },
-      { id: 'pE', short: 'E', label: 'Pradera · este', pos: [14, -40], goal: { U: 3 } },
-      { id: 'bO', short: 'O', label: 'Bosque · oeste', pos: [-26, 6], goal: { D: 2 } },
-      { id: 'bE', short: 'E', label: 'Bosque · este', pos: [26, 5], goal: { U: 2 } },
-      { id: 'dO', short: 'O', label: 'Profundo · oeste', pos: [-32, 30], goal: { D: 1 } },
-      { id: 'dE', short: 'E', label: 'Profundo · este', pos: [22, 38], goal: { D: 3 } },
+    totems: [   // cada capa pide 4 U entre sus dos tótems (el reparto Oeste/Este es libre)
+      { id: 'pO', short: 'O', label: 'Pradera · oeste', pos: [-14, -38], sum: 'pradera' },
+      { id: 'pE', short: 'E', label: 'Pradera · este', pos: [14, -40], sum: 'pradera' },
+      { id: 'bO', short: 'O', label: 'Bosque · oeste', pos: [-26, 6], sum: 'bosque' },
+      { id: 'bE', short: 'E', label: 'Bosque · este', pos: [26, 5], sum: 'bosque' },
+      { id: 'dO', short: 'O', label: 'Profundo · oeste', pos: [-32, 30], sum: 'profundo' },
+      { id: 'dE', short: 'E', label: 'Profundo · este', pos: [22, 38], sum: 'profundo' },
     ],
   }],
 };

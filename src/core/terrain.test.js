@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createTerrain, walk, zoneByZ, MAX_SLOPE } from './terrain.js';
+import { createTerrain, walk, zoneByZ, MAX_SLOPE, FALL_SLOPE } from './terrain.js';
 
 const world = {
   radius: 48,
@@ -85,4 +85,18 @@ test('zoneCoord es continua: 0 en la primera capa, n-1 en la última', () => {
   assert.equal(T.zoneCoord(-40), 0);
   assert.equal(T.zoneCoord(40), 2);
   assert.ok(T.zoneCoord(-16) > 0.4 && T.zoneCoord(-16) < 0.6);
+});
+
+test('desde arriba SÍ se puede caminar al vacío: el acantilado se baja (cae)', () => {
+  const [, z] = stroll(-8, -22, 0, 1, 140);       // pradera → hacia el sur, fuera de la rampa
+  assert.ok(z > -14, `no bajó: z=${z.toFixed(1)}`);
+  assert.ok(T.height(-8, z) < 1, 'debería haber llegado al bosque');
+});
+
+test('la caída es más empinada que FALL_SLOPE; la rampa no', () => {
+  let cliff = 0, ramp = 0;
+  for (let z = -18; z < -14; z += 0.1) cliff = Math.max(cliff, Math.abs(T.height(-8, z + 0.1) - T.height(-8, z)) / 0.1);
+  for (let z = -28; z < -4; z += 0.1) ramp = Math.max(ramp, Math.abs(T.height(18, z + 0.1) - T.height(18, z)) / 0.1);
+  assert.ok(cliff > FALL_SLOPE, `acantilado ${cliff.toFixed(2)}`);
+  assert.ok(ramp < FALL_SLOPE, `rampa ${ramp.toFixed(2)}`);
 });

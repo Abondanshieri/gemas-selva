@@ -7,11 +7,12 @@ import { createTerrain } from '../core/terrain.js';
 // Cada capa tiene su ambiente. Se mezclan de forma continua al subir o bajar por las rampas,
 // así que "casi todo es igual" pero cambia la luz, la niebla, el color del suelo y la espesura.
 export const THEMES = {
-  pradera:  { sky: 0xcfeab8, g1: 0x6da84a, g2: 0xa2cf5c, path: 0xe9dba6, fog: [32, 82], trees: 0.04, bush: 0.3, tint: 1.1 },
-  bosque:   { sky: 0xa8d8b9, g1: 0x2f7d46, g2: 0x4fa05a, path: 0xc9b27a, fog: [22, 62], trees: 0.12, bush: 0.8, tint: 1 },
-  profundo: { sky: 0x6f9f92, g1: 0x1c5a3e, g2: 0x2d7a58, path: 0xb3a06c, fog: [11, 44], trees: 0.3, bush: 1, tint: 0.72 },
+  pradera:  { sky: 0xcfeab8, g1: 0x6da84a, g2: 0xa2cf5c, path: 0xe9dba6, fog: [32, 82], trees: 0.08, bush: 0.35, fern: 0.15, flower: 1, tint: 1.1 },
+  bosque:   { sky: 0xa8d8b9, g1: 0x2f7d46, g2: 0x4fa05a, path: 0xc9b27a, fog: [22, 62], trees: 0.26, bush: 0.9, fern: 0.7, flower: 0.12, tint: 1 },
+  profundo: { sky: 0x6f9f92, g1: 0x1c5a3e, g2: 0x2d7a58, path: 0xb3a06c, fog: [11, 44], trees: 0.45, bush: 1, fern: 1, flower: 0, tint: 0.72 },
 };
 const ROCK = new THREE.Color(0x7f7c6c);
+const FLOWER = [0xffd84a, 0xff7aa8, 0xffffff, 0xb58cff];   // amarilla, rosa, blanca, violeta
 
 export const ANCHOR_Y = 10.6;   // altura del aro sobre el suelo de su capa
 const CHUNK = 20;               // lado de cada chunk de vegetación
@@ -55,6 +56,22 @@ function geometries() {
       part(new THREE.IcosahedronGeometry(0.45, 0), 0x45bd72, 0.75, 1, 0.9, 1),
     ]),
     rock: mergeGeometries([part(new THREE.DodecahedronGeometry(0.8, 0), 0x7d8a82, 0.35, 1.2, 0.7, 1)]),
+    // Árbol alto y esbelto de selva: sube por encima del dosel y da sensación de bosque cerrado.
+    tall: mergeGeometries([
+      part(new THREE.CylinderGeometry(0.14, 0.26, 5.4, 6), 0x5e4326, 2.7),
+      part(new THREE.ConeGeometry(1.6, 3.4, 7), 0x1f6b47, 5.2),
+      part(new THREE.ConeGeometry(1.2, 2.8, 7), 0x2a8456, 7.0),
+      part(new THREE.ConeGeometry(0.75, 2.2, 6), 0x3fa66a, 8.7),
+    ]),
+    fern: mergeGeometries(Array.from({ length: 6 }, (_, i) => {
+      const g = new THREE.ConeGeometry(0.13, 1.2, 4).translate(0, 0.6, 0).rotateZ(1.15).rotateY((i / 6) * Math.PI * 2).toNonIndexed();
+      g.deleteAttribute('uv');
+      return paint(g, 0x4cc06f);
+    })),
+    flower: mergeGeometries([
+      part(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 4), 0x9fd77a, 0.25),
+      part(new THREE.IcosahedronGeometry(0.14, 0), 0xffffff, 0.56),
+    ]),
   };
   return GEOS;
 }
@@ -195,28 +212,38 @@ export function buildWorld(scene, def) {
   const put = (kind, x, z, s) => {
     const k = `${Math.floor((x + half) / CHUNK)},${Math.floor((z + half) / CHUNK)}`;
     const tint = zoneTheme(z).tint;
-    (chunks.get(k) ?? chunks.set(k, { tree: [], bush: [], rock: [] }).get(k))[kind].push({ x, z, s, r: rnd() * Math.PI * 2, t: Math.min(1.15, (0.75 + rnd() * 0.25) * tint), g: 0.85 + rnd() * 0.3 });
+    (chunks.get(k) ?? chunks.set(k, { tree: [], tall: [], bush: [], fern: [], flower: [], rock: [] }).get(k))[kind].push({ x, z, s, h: Math.floor(rnd() * 4), r: rnd() * Math.PI * 2, t: Math.min(1.15, (0.75 + rnd() * 0.25) * tint), g: 0.85 + rnd() * 0.3 });
   };
   const inside = def.radius - 3;
   const area = (SIZE / 110) ** 2;
 
-  for (let i = 0, n = Math.round(1000 * area); i < n; i++) {
+  // Bosquetes: el bosque se agrupa en manchas y deja claros entre ellas.
+  const grove = (x, z) => 0.5 + 0.5 * Math.sin(x * 0.085 + 1.3) * Math.sin(z * 0.075 - 0.4);
+  for (let i = 0, n = Math.round(2000 * area); i < n; i++) {
     const x = (rnd() * 2 - 1) * (half - 3), z = (rnd() * 2 - 1) * (half - 3), d = Math.hypot(x, z);
     if (inRiver(x, 2)) continue;
     if (d < inside + 5) {
       // Interior: despejado, con más o menos espesura según la capa; nunca sobre senderos, rampas ni puntos de interés.
-      if (rnd() > zoneTheme(z).trees || nearPoi(x, z, 6) || nearAnchor(x, z) || nearRamp(x, z) || distToSegments(x, z, paths) < 3.4) continue;
+      if (rnd() > zoneTheme(z).trees * (0.3 + 1.6 * grove(x, z)) || nearPoi(x, z, 6) || nearAnchor(x, z) || nearRamp(x, z) || distToSegments(x, z, paths) < 3.4) continue;
       if (T.slopeAt(x, z) > 0.45) continue;
     }
     const s = 0.8 + rnd() * 0.9;
-    put('tree', x, z, s);
+    put(rnd() < 0.35 ? 'tall' : 'tree', x, z, s);
     if (d < inside + 5) grid.add(x, z, 0.45 * s);
   }
-  for (let i = 0, n = Math.round(460 * area); i < n; i++) {
+  for (let i = 0, n = Math.round(700 * area); i < n; i++) {
     const x = (rnd() * 2 - 1) * (half - 3), z = (rnd() * 2 - 1) * (half - 3);
     if (nearPoi(x, z, 2.5) || inRiver(x, 1.5) || distToSegments(x, z, paths) < 1.8 || T.slopeAt(x, z) > 0.5) continue;
     if (Math.hypot(x, z) < inside && rnd() > zoneTheme(z).bush) continue;   // la pradera es más abierta
     put('bush', x, z, 0.7 + rnd() * 0.9);
+  }
+  // Sotobosque: helechos (bosque y profundo) y flores (pradera).
+  for (const [kind, key, tries] of [['fern', 'fern', 900], ['flower', 'flower', 800]]) {
+    for (let i = 0, n = Math.round(tries * area); i < n; i++) {
+      const x = (rnd() * 2 - 1) * (half - 3), z = (rnd() * 2 - 1) * (half - 3);
+      if (Math.hypot(x, z) > inside + 4 || rnd() > zoneTheme(z)[key] || nearPoi(x, z, 1.6) || inRiver(x, 1.2) || distToSegments(x, z, paths) < 1.3 || T.slopeAt(x, z) > 0.5) continue;
+      put(kind, x, z, 0.8 + rnd() * 0.8);
+    }
   }
   for (let i = 0, n = Math.round(70 * area); i < n; i++) {
     const x = (rnd() * 2 - 1) * (def.radius + 2), z = (rnd() * 2 - 1) * (def.radius + 2);
@@ -239,7 +266,7 @@ export function buildWorld(scene, def) {
   const dummy = new THREE.Object3D(), color = new THREE.Color();
   let meshCount = 0;
   for (const data of chunks.values()) {
-    for (const kind of ['tree', 'bush', 'rock']) {
+    for (const kind of ['tree', 'tall', 'bush', 'fern', 'flower', 'rock']) {
       const list = data[kind];
       if (!list.length) continue;
       const im = new THREE.InstancedMesh(geos[kind], VEG_MAT, list.length);
@@ -249,7 +276,8 @@ export function buildWorld(scene, def) {
         dummy.scale.setScalar(o.s);
         dummy.updateMatrix();
         im.setMatrixAt(i, dummy.matrix);
-        im.setColorAt(i, color.setRGB(o.t, o.t * o.g, o.t));
+        if (kind === 'flower') im.setColorAt(i, color.setHex(FLOWER[o.h]));
+        else im.setColorAt(i, color.setRGB(o.t, o.t * o.g, o.t));
       });
       im.instanceMatrix.needsUpdate = true;
       im.computeBoundingSphere();   // permite descartar el chunk entero fuera de cámara

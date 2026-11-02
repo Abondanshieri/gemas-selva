@@ -58,3 +58,10 @@ salidas, menos maleza en la zona jugable y un color de suelo/cielo distinto por 
 - Las rampas alternan de orilla (arriba por el Este, abajo por el Oeste), así que hay que cruzar el río para recorrer todo.
 - Lógica pura: `core/terrain.js` (alturas, pendientes, `walk`), `core/paths.js` (grafo de navegación y senderos).
 - Tests: alcanzabilidad real a pie (rampas + látigo), sin rampas las capas quedan aisladas, senderos solo cruzan capa por rampas.
+
+## Escenificación, ritmo y caídas
+
+- **Más bosque:** el bosque se agrupa en bosquetes con claros entre ellos; hay pinos altos, helechos (bosque y profundo) y flores de colores (pradera). Espesura: pradera abierta < bosque < bosque profundo.
+- **Ritmo de carrera:** caminar sin parar en línea recta da hasta **+30 %** de velocidad (7,28 m/s sobre 5,6). El HUD muestra el porcentaje en vivo (⚡ +N %) y avisa al llegar al máximo.
+- **Caídas:** subir está limitado (acantilado = pared), bajar no. Caminar al borde de una capa alta hace caer al jugador con gravedad. Si la caída pasa de 1,2 m queda aturdido: pausa total (35 % del tiempo), luego recupera la velocidad poco a poco; se aplasta, se encorva y la cámara se hunde un instante.
+- La cámara se acerca si el relieve tapa al jugador; el cauce del río y su talud son un muro (no se baja al agua).

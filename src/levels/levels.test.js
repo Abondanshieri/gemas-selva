@@ -47,7 +47,7 @@ function walkable(w, { ramps = true } = {}) {
   const idx = (x, z) => [Math.round((x - o) / step), Math.round((z - o) / step)];
   const H = new Float32Array(n * n);
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) H[j * n + i] = T.height(...at(i, j));
-  const inWater = (x) => (w.rivers ?? []).some((r) => Math.abs(x - r.x) < r.halfWidth + 0.4);
+  const inWater = (x) => (w.rivers ?? []).some((r) => Math.abs(x - r.x) < r.halfWidth + 2.7);   // el cauce y su talud son un muro
   const pads = (w.rivers ?? []).flatMap((r) => r.anchors.map((a) => padsOf({ x: r.x, z: a.z }, r)));
   const seen = new Uint8Array(n * n), q = [];
   const push = (i, j) => { if (i >= 0 && j >= 0 && i < n && j < n && !seen[j * n + i]) { seen[j * n + i] = 1; q.push(i, j); } };
@@ -62,7 +62,7 @@ function walkable(w, { ramps = true } = {}) {
       if (ni < 0 || nj < 0 || ni >= n || nj >= n) continue;
       const [nx, nz] = at(ni, nj), d = Math.hypot(di, dj) * step;
       if (Math.hypot(nx, nz) > w.bounds || inWater(nx)) continue;
-      if (Math.abs(H[nj * n + ni] - H[j * n + i]) / d > MAX_SLOPE) continue;
+      if ((H[nj * n + ni] - H[j * n + i]) / d > MAX_SLOPE) continue;   // solo se limita SUBIR; bajar = caminar o caer
       push(ni, nj);
     }
   }
@@ -125,13 +125,16 @@ test('nivel 4: UN río cruza las tres capas, con un aro por capa y un tótem en 
   assert.equal(solvable(l, ['pradera', 'bosque']), false, 'hay que llegar hasta el bosque profundo');
 });
 
-test('nivel 4: cada tótem pide exclusivamente un solo tipo de gema (sin mezclas)', () => {
-  const l = LEVELS[3];
-  for (const t of levelTotems(l)) {
-    const types = Object.keys(t.goal).filter((k) => t.goal[k] > 0);
-    assert.equal(types.length, 1, 'el totem ' + t.id + ' pide un solo tipo');
-    assert.ok(t.goal[types[0]] >= 1, 'cantidad >= 1');
+test('nivel 4: cada capa pide una cantidad total de un solo tipo entre sus dos tótems', () => {
+  const l = LEVELS[3], w = worldOf(l);
+  assert.equal(l.sums.length, 3, 'una suma por capa');
+  for (const sm of l.sums) {
+    assert.equal(sm.type, 'U'); assert.ok(sm.total >= 1);
+    const ts = w.totems.filter((t) => t.sum === sm.id);
+    assert.equal(ts.length, 2, `${sm.id}: dos tótems (oeste y este)`);
+    assert.equal(new Set(ts.map((t) => layerOf(w, t.pos[1]))).size, 1, `${sm.id}: ambos en la misma capa`);
   }
+  assert.ok(w.totems.every((t) => t.sum && !t.goal), 'ningún tótem fija su propia cantidad');
 });
 
 test('el río es perpendicular a las capas: las cruza todas y queda lejos de las rampas y de los límites', () => {
@@ -172,13 +175,15 @@ test('se llega a pie a TODO (inicio, tótems, gemas, aros) subiendo por rampas y
   }
 });
 
-test('sin rampas las capas quedan aisladas: los acantilados no se trepan', () => {
+test('sin rampas NO se puede subir: las capas de arriba quedan fuera de alcance (bajar sí, cayendo)', () => {
   for (const l of LEVELS) {
     const w = worldOf(l), { reaches } = walkable(w, { ramps: false });
-    const here = layerOf(w, w.playerStart[1]);
-    const others = [...w.totems.map((t) => t.pos), ...w.gems.map((g) => g.pos)].filter(([, z]) => layerOf(w, z) !== here);
-    assert.ok(others.length > 0, `${l.id}: nada fuera de la capa inicial`);
-    for (const [x, z] of others) assert.equal(reaches(x, z), false, `${l.id}: (${x},${z}) alcanzable sin rampa`);
+    const here = w.zones.findIndex((z) => z.id === layerOf(w, w.playerStart[1]));
+    const idx = (z) => w.zones.findIndex((zn) => zn.id === layerOf(w, z));
+    const above = [...w.totems.map((t) => t.pos), ...w.gems.map((g) => g.pos)].filter(([, z]) => idx(z) < here);
+    const below = [...w.totems.map((t) => t.pos), ...w.gems.map((g) => g.pos)].filter(([, z]) => idx(z) > here);
+    for (const [x, z] of above) assert.equal(reaches(x, z), false, `${l.id}: (${x},${z}) está arriba y se alcanzó sin rampa`);
+    if (!w.rivers.length) for (const [x, z] of below) assert.equal(reaches(x, z), true, `${l.id}: (${x},${z}) está abajo y debería poder alcanzarse cayendo`);
   }
 });
 
@@ -207,4 +212,22 @@ test('los senderos cruzan de capa solo por las rampas', () => {
       assert.ok(ramp, `${l.id}: sendero (${x1},${z1})→(${x2},${z2}) cambia de capa fuera de una rampa`);
     }
   }
+});
+
+test('cada tótem pide UN solo tipo de gema (sin mezclas tipo 2D + 3U); los niveles 1, 3 y 4 usan un único tipo en todo el nivel', () => {
+  for (const l of LEVELS) {
+    for (const td of levelTotems(l).filter((x) => !x.sum)) assert.equal(Object.keys(td.goal).length, 1, `${l.id}/${td.id} pide varios tipos`);
+  }
+  for (const i of [0, 2, 3]) {
+    const l = LEVELS[i];
+    const types = new Set([...levelTotems(l).filter((x) => !x.sum).flatMap((x) => Object.keys(x.goal)), ...(l.sums ?? []).map((x) => x.type)]);
+    assert.equal(types.size, 1, `nivel ${l.id}: más de un tipo a entregar (${[...types]})`);
+  }
+});
+
+test('nivel 4: meta alcanzable y sin sobrar complicación (6 × 2 U = 12 U con una D descompuesta y 2 U)', () => {
+  const l = LEVELS[3], w = worldOf(l);
+  assert.equal(levelTotems(l).length, 6);
+  assert.ok(w.gems.some((g) => g.type === 'D') && w.gems.filter((g) => g.type === 'U').length >= 2);
+  assert.equal(solvable(l), true);
 });

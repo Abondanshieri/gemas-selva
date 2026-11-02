@@ -106,6 +106,16 @@ test('remaining y complete combinan exactos y sumas', () => {
   assert.deepEqual(s.progress(), { done: 3, total: 3 });
 });
 
+test('summary con filtro: solo muestra los tótems que pasan el filtro y su alcance', () => {
+  const s = createLevelState(level);
+  const m = s.summary('rio', (t) => t.short === 'Sur');
+  assert.deepEqual(m.groups[0].parts, [{ short: 'Sur', n: 0 }]);
+  assert.equal(m.exact.length, 0);
+  assert.deepEqual(m.scope, { done: 0, total: 1 });
+  assert.equal(m.progress.total, 3, 'el progreso global no se filtra');
+  assert.deepEqual(s.summary('rio', () => false).scope, { done: 0, total: 0 });
+});
+
 test('summary: resume exactos, grupos y partes', () => {
   const s = createLevelState(level);
   s.deposit(s.totems[0], 5, inv({ U: 9 }));

@@ -206,7 +206,6 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
         <span class="tt grp${g.done ? ' done' : ''}">
           <small class="t-sigma">Σ</small>
           <span class="gc sum">${miniGem(g.type)}<b>${g.got}/${g.total}</b></span>
-          ${g.parts.map((p) => `<small class="t-part">${p.short} ${p.n}</small>`).join('')}
           ${g.done ? '<b class="chk">✓</b>' : ''}
         </span>
       `).join('');

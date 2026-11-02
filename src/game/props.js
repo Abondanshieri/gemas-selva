@@ -42,6 +42,10 @@ export function createPlayer() {
       g.position.y = Math.abs(Math.sin(t * 11)) * 0.06 * speed;
       g.rotation.x = speed > 1.0 ? Math.min(0.18, (speed - 1) * 0.28) : 0;
     },
+    // Caída: en el aire patalea; al aterrizar se aplasta y se encorva, y se recupera poco a poco.
+    air(t) { legs[0].rotation.x = Math.sin(t * 16) * 0.9; legs[1].rotation.x = -Math.sin(t * 16) * 0.9; g.rotation.x = -0.12; g.position.y = 0; },
+    squash(k) { g.scale.set(1 + 0.16 * k, 1 - 0.3 * k, 1 + 0.16 * k); },
+    lean(a) { g.rotation.x = a; },
     pose(swinging) { // piernas recogidas durante el balanceo
       if (swinging) { legs[0].rotation.x = legs[1].rotation.x = -0.7; g.rotation.x = 0.15; }
       else g.rotation.x = 0;

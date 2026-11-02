@@ -1,9 +1,10 @@
 export const BASE_SPEED = 5.6;
-export const SPRINT_SPEED = 8.5;
+export const BOOST = 0.3;                      // la carrera da +30 % de velocidad
+export const SPRINT_SPEED = BASE_SPEED * (1 + BOOST);   // 7,28 m/s
 export const SPRINT_DELAY = 1.1;     // segundos caminando en la misma dirección antes de correr
 export const SPRINT_DOT_MIN = 0.6;   // producto punto mínimo para considerar la misma dirección
 export const BASE_FOV = 55;
-export const SPRINT_FOV = 59;
+export const SPRINT_FOV = 58;
 
 export function createSprintTracker({
   baseSpeed = BASE_SPEED,

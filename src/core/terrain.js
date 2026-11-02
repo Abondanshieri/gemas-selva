@@ -56,12 +56,15 @@ export function createTerrain(world) {
   };
 }
 
-// Un paso del jugador respetando acantilados: si es demasiado empinado intenta deslizar por un eje.
+export const FALL_SLOPE = 0.95;   // bajando más empinado que esto el jugador deja de caminar y CAE
+
+// Un paso del jugador. Solo se limita SUBIR (acantilado = pared); bajar siempre se puede:
+// por una rampa se camina y por un acantilado se cae. Si la subida es imposible, desliza por un eje.
 export function walk(h, x, z, dx, dz) {
   const h0 = h(x, z);
   const ok = (nx, nz) => {
     const d = Math.hypot(nx - x, nz - z);
-    return d < 1e-6 || Math.abs(h(nx, nz) - h0) / d <= MAX_SLOPE;
+    return d < 1e-6 || (h(nx, nz) - h0) / d <= MAX_SLOPE;
   };
   if (ok(x + dx, z + dz)) return [x + dx, z + dz];
   if (ok(x + dx, z)) return [x + dx, z];

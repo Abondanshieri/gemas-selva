@@ -54,17 +54,19 @@ export function createLevelState(level) {
     complete: () => totems.every(isDone),
     progress: () => ({ done: totems.filter(isDone).length, total: totems.length }),
     // Resumen para el HUD de una escena.
-    summary(sceneId) {
-      const here = totems.filter((t) => t.scene === sceneId);
+    // pred (opcional): filtra los tótems que se muestran, p. ej. solo los de la capa actual.
+    summary(sceneId, pred = () => true) {
+      const here = totems.filter((t) => t.scene === sceneId && pred(t));
       const groups = [...new Set(here.filter((t) => t.sum).map((t) => t.sum))].map((id) => {
         const s = sums.get(id);
         return { id, type: s.type, total: s.total, got: groupTotal(id), done: groupComplete(id),
-          parts: inGroup(id).map((t) => ({ short: t.short, n: deposits[t.id] })) };
+          parts: inGroup(id).filter(pred).map((t) => ({ short: t.short, n: deposits[t.id] })) };
       });
       return {
         exact: here.filter((t) => !t.sum).map((t) => ({ id: t.id, short: t.short, goal: t.goal, done: delivered.has(t.id) })),
         groups,
         progress: this.progress(),
+        scope: { done: here.filter(isDone).length, total: here.length },   // solo lo que se ve (la capa actual)
       };
     },
   };

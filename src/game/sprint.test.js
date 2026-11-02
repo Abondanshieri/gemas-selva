@@ -40,8 +40,8 @@ test('caminar continuo en la misma dirección acelera a velocidad de sprint', ()
 
   assert.ok(tracker.isSprinting);
   assert.ok(lastState.sprint > 0.95);
-  assert.ok(lastState.speed > 8.3);
-  assert.ok(lastState.sprintFactor > 1.48);
+  assert.ok(lastState.speed > BASE_SPEED * 1.28);
+  assert.ok(lastState.sprintFactor > 1.28 && lastState.sprintFactor <= 1.3 + 1e-9);
   assert.ok(lastState.speed <= SPRINT_SPEED);
 });
 
@@ -111,4 +111,8 @@ test('reset() limpia inmediatamente todo el estado', () => {
   assert.equal(tracker.walkTime, 0);
   assert.equal(tracker.sprint, 0);
   assert.equal(tracker.isSprinting, false);
+});
+
+test('el sprint da exactamente +30 % sobre la velocidad base', () => {
+  assert.ok(Math.abs(SPRINT_SPEED / BASE_SPEED - 1.3) < 1e-9);
 });
