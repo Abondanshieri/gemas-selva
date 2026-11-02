@@ -1,1 +1,0 @@
-import{m as o,c as r,a}from"./blueprint-C_H7KlIH.js";const e=new URLSearchParams(location.search).get("layout"),t={C:1,D:2,U:3};o(document.getElementById("blueprint"),{forcedLayout:e==="h"||e==="v"?e:null,store:r(a(t)),goal:{U:5,D:1},resetTo:t});
