@@ -28,7 +28,7 @@ test('suma: cualquier reparto que llegue a 8 vale (4+4, 5+3, 6+2)', () => {
   }
 });
 
-test('suma: no se puede pasar del total ni dejar a la otra orilla sin su mínimo', () => {
+test('suma: con minEach 1 no se puede pasar del total ni dejar a la otra orilla sin su mínimo', () => {
   const s = createLevelState(level);
   assert.equal(s.maxDeposit(s.totems[0], inv({ U: 20 })), 7); // 8 − 1 reservado para el otro tótem
   s.deposit(s.totems[0], 7, inv({ U: 20 }));
@@ -43,12 +43,44 @@ test('suma: el máximo también está limitado por lo que llevas', () => {
   assert.equal(s.maxDeposit(s.totems[0], inv({ U: 0 })), 0);
 });
 
-test('suma: con 8 en un solo tótem NO se completa', () => {
-  const s = createLevelState({ ...level, sums: [{ ...level.sums[0], minEach: 0 }] });
-  s.deposit(s.totems[0], 8, inv({ U: 8 }));
-  assert.equal(s.groupComplete('suma'), true); // con minEach 0 sí; con 1 no se puede ni intentar (abajo)
+test('suma con 0: minEach por defecto es 0 y permite 8+0 y 0+8', () => {
+  const levelZero = {
+    sums: [{ id: 'suma', type: 'U', total: 8 }], // minEach por defecto es 0
+    scenes: level.scenes,
+  };
+  // minEach por defecto verificado
+  const sDef = createLevelState(levelZero);
+  assert.equal(sDef.sums.get('suma').minEach, 0);
+  assert.equal(sDef.maxDeposit(sDef.totems[0], inv({ U: 8 })), 8);
+
+  // 8 + 0 depositando solo en el primero
+  const s1 = createLevelState(levelZero);
+  const i1 = s1.deposit(s1.totems[0], 8, inv({ U: 8 }));
+  assert.equal(s1.groupComplete('suma'), true);
+  assert.equal(s1.isDone(s1.totems[0]), true);
+  assert.equal(s1.isDone(s1.totems[1]), true);
+  assert.equal(i1.U, 0);
+
+  // 0 + 8 depositando solo en el segundo
+  const s2 = createLevelState(levelZero);
+  const i2 = s2.deposit(s2.totems[1], 8, inv({ U: 8 }));
+  assert.equal(s2.groupComplete('suma'), true);
+  assert.equal(s2.isDone(s2.totems[0]), true);
+  assert.equal(s2.isDone(s2.totems[1]), true);
+  assert.equal(i2.U, 0);
+
+  // Depósito explícito de 0 es válido y no produce error
+  const s3 = createLevelState(levelZero);
+  const i3 = s3.deposit(s3.totems[0], 0, inv({ U: 5 }));
+  assert.equal(i3.U, 5);
+  assert.equal(s3.deposits[s3.totems[0].id], 0);
+
+  // Depósito negativo es inválido
+  assert.throws(() => s3.deposit(s3.totems[0], -1, inv({ U: 5 })), /Depósito inválido/);
+
+  // Si el nivel fija minEach: 1, 8 en un solo tótem no se permite
   const t = createLevelState(level);
-  assert.throws(() => t.deposit(t.totems[0], 8, inv({ U: 8 })));
+  assert.throws(() => t.deposit(t.totems[0], 8, inv({ U: 8 })), /Depósito inválido/);
 });
 
 test('tótem exacto: entrega y conserva sobrante', () => {
@@ -83,18 +115,23 @@ test('summary: resume exactos, grupos y partes', () => {
   assert.equal(m.exact.length, 1);
 });
 
-const river = { z: 0, halfWidth: 3.5, anchors: [{ x: 0 }] };
-test('senderos: en escenas con río ninguno cruza el agua y todos terminan en un aro', () => {
-  const def = { playerStart: [-3, 14], totems: [{ pos: [-15, 18] }, { pos: [13, -19] }], exits: [], gems: [{ pos: [14, 15] }, { pos: [-12, -15] }], river };
+const zones2 = [{ id: 'a', z1: -4, elevation: 4 }, { id: 'b', z1: 40, elevation: 0 }];
+
+test('senderos: sin río salen del inicio y, para subir de capa, pasan por la rampa', () => {
+  const def = { playerStart: [0, 12], zones: zones2, ramps: [{ boundary: 0, x: 12 }], rivers: [], totems: [{ pos: [-10, 18] }], gems: [{ pos: [6, -20] }] };
   const segs = computePaths(def);
-  assert.ok(segs.length >= 5);
-  for (const [, z1, , z2] of segs) assert.ok(Math.sign(z1) === Math.sign(z2) || z1 === 0 || z2 === 0, 'cruza el río');
-  assert.ok(segs.every(([x1, z1]) => Math.abs(z1) === 7.5 && x1 === 0));
+  assert.ok(segs.some(([x1, , x2]) => x1 === 12 && x2 === 12), 'hay un tramo sobre la rampa');
+  assert.ok(!segs.some(([x1, z1, x2, z2]) => !(x1 === 12 && x2 === 12) && z1 > 0 && z2 < -10), 'ningún sendero atraviesa el acantilado');
+  assert.ok(segs.some(([x1, z1]) => x1 === 0 && z1 === 12), 'salen del inicio');
 });
 
-test('senderos: sin río salen del punto de inicio', () => {
-  const def = { playerStart: [0, 5], totems: [{ pos: [0, -10] }], exits: [], gems: [{ pos: [4, 0] }] };
-  assert.deepEqual(computePaths(def), [[0, 5, 0, -10], [0, 5, 4, 0]]);
+test('senderos: con río norte-sur, cada orilla tiene su red y el aro une ambas sin dejar sendero sobre el agua', () => {
+  const river = { x: 0, halfWidth: 3.5, anchors: [{ z: 0 }] };
+  const def = { playerStart: [10, -4], zones: [{ id: 'a', z1: 99, elevation: 0 }], ramps: [], rivers: [river], totems: [{ pos: [11, 9] }], gems: [{ pos: [-9, -12] }] };
+  const segs = computePaths(def);
+  assert.ok(segs.length >= 2);
+  for (const [x1, , x2] of segs) assert.ok(Math.sign(x1) === Math.sign(x2), 'un sendero cruza el río');
+  assert.ok(segs.some(([x1, z1]) => Math.abs(x1) === 7.5 && z1 === 0), 'los senderos llegan a un aro');
 });
 
 test('distToSegments', () => {

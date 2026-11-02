@@ -5,7 +5,7 @@ import { levelTotems, sumGoals } from './levelLogic.js';
 
 export function createLevelState(level) {
   const totems = levelTotems(level);
-  const sums = new Map((level.sums ?? []).map((s) => [s.id, { minEach: 1, ...s }]));
+  const sums = new Map((level.sums ?? []).map((s) => [s.id, { minEach: 0, ...s }]));
   const delivered = new Set();
   const deposits = Object.fromEntries(totems.filter((t) => t.sum).map((t) => [t.id, 0]));
 
@@ -40,7 +40,7 @@ export function createLevelState(level) {
     maxDeposit,
     deposit(t, n, inv) {
       if (!t.sum) throw new Error('No es un tótem de suma');
-      if (!Number.isInteger(n) || n < 1 || n > maxDeposit(t, inv)) throw new Error('Depósito inválido');
+      if (!Number.isInteger(n) || n < 0 || n > maxDeposit(t, inv)) throw new Error('Depósito inválido');
       const s = sums.get(t.sum);
       deposits[t.id] += n;
       return { ...inv, [s.type]: inv[s.type] - n };

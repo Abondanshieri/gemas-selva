@@ -1,38 +1,73 @@
-// Entrada unificada: joystick flotante (izquierda), arrastre de cámara (derecha) y teclado.
+// Entrada unificada: joystick táctil visible (inferior izquierda), arrastre de cámara y teclado.
 export function createInput(layer, { onInteract, onBlueprint }) {
   const state = { x: 0, y: 0, lookX: 0, lookY: 0 };
   const keys = new Set();
   const stick = layer.querySelector('.stick'), knob = layer.querySelector('.knob');
-  const R = 52;
+  const R = 38; // Recorrido máximo del pomo dentro del anillo
   let stickId = null, lookId = null, origin = null, last = null;
 
   layer.addEventListener('pointerdown', (e) => {
     if (e.target.closest('button')) return;
-    const leftSide = e.clientX < innerWidth * 0.45 && e.pointerType !== 'mouse';
-    layer.setPointerCapture?.(e.pointerId);
-    if (leftSide && stickId === null) {
-      stickId = e.pointerId; origin = { x: e.clientX, y: e.clientY };
-      stick.style.transform = `translate(${origin.x - R}px, ${origin.y - R}px)`;
-      stick.classList.add('on'); knob.style.transform = 'translate(0,0)';
-    } else if (lookId === null) {
-      lookId = e.pointerId; last = { x: e.clientX, y: e.clientY };
-    }
-  });
-  layer.addEventListener('pointermove', (e) => {
-    if (e.pointerId === stickId) {
+
+    const rect = stick.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const dist = Math.hypot(e.clientX - centerX, e.clientY - centerY);
+
+    const isMouse = e.pointerType === 'mouse';
+    // Con mouse: click dentro de la base del joystick (radio generoso)
+    // Con touch: toque en el joystick o en el cuadrante inferior izquierdo
+    const inTouchZone = !isMouse && (e.clientX < Math.max(260, innerWidth * 0.42) && e.clientY > innerHeight * 0.38);
+    const isStickHit = dist <= (rect.width * 0.75) || inTouchZone;
+
+    if (isStickHit && stickId === null) {
+      stickId = e.pointerId;
+      origin = { x: centerX, y: centerY };
+      layer.setPointerCapture?.(e.pointerId);
+      stick.classList.add('on');
+      knob.style.transition = 'none';
+
       let dx = e.clientX - origin.x, dy = e.clientY - origin.y;
       const d = Math.hypot(dx, dy);
-      if (d > R) { dx = dx / d * R; dy = dy / d * R; }
-      knob.style.transform = `translate(${dx}px, ${dy}px)`;
-      state.x = dx / R; state.y = -dy / R;
-    } else if (e.pointerId === lookId) {
-      state.lookX += e.clientX - last.x; state.lookY += e.clientY - last.y;
+      if (d > R) { dx = (dx / d) * R; dy = (dy / d) * R; }
+      knob.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+      state.x = dx / R;
+      state.y = -dy / R;
+    } else if (lookId === null) {
+      lookId = e.pointerId;
+      layer.setPointerCapture?.(e.pointerId);
       last = { x: e.clientX, y: e.clientY };
     }
   });
+
+  layer.addEventListener('pointermove', (e) => {
+    if (e.pointerId === stickId && origin) {
+      let dx = e.clientX - origin.x, dy = e.clientY - origin.y;
+      const d = Math.hypot(dx, dy);
+      if (d > R) { dx = (dx / d) * R; dy = (dy / d) * R; }
+      knob.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+      state.x = dx / R;
+      state.y = -dy / R;
+    } else if (e.pointerId === lookId && last) {
+      state.lookX += e.clientX - last.x;
+      state.lookY += e.clientY - last.y;
+      last = { x: e.clientX, y: e.clientY };
+    }
+  });
+
   const end = (e) => {
-    if (e.pointerId === stickId) { stickId = null; state.x = state.y = 0; stick.classList.remove('on'); }
-    if (e.pointerId === lookId) lookId = null;
+    if (e.pointerId === stickId) {
+      stickId = null;
+      origin = null;
+      state.x = state.y = 0;
+      stick.classList.remove('on');
+      knob.style.transition = 'transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+      knob.style.transform = 'translate(0, 0)';
+    }
+    if (e.pointerId === lookId) {
+      lookId = null;
+      last = null;
+    }
   };
   layer.addEventListener('pointerup', end);
   layer.addEventListener('pointercancel', end);
@@ -58,6 +93,14 @@ export function createInput(layer, { onInteract, onBlueprint }) {
       state.lookX = state.lookY = 0;
       return out;
     },
-    reset() { state.x = state.y = state.lookX = state.lookY = 0; keys.clear(); stickId = lookId = null; stick.classList.remove('on'); },
+    reset() {
+      state.x = state.y = state.lookX = state.lookY = 0;
+      keys.clear();
+      stickId = lookId = null;
+      origin = last = null;
+      stick.classList.remove('on');
+      knob.style.transition = 'transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+      knob.style.transform = 'translate(0, 0)';
+    },
   };
 }

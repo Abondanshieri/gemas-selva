@@ -40,6 +40,7 @@ export function createPlayer() {
       const s = Math.sin(t * 11) * 0.7 * speed;
       legs[0].rotation.x = s; legs[1].rotation.x = -s;
       g.position.y = Math.abs(Math.sin(t * 11)) * 0.06 * speed;
+      g.rotation.x = speed > 1.0 ? Math.min(0.18, (speed - 1) * 0.28) : 0;
     },
     pose(swinging) { // piernas recogidas durante el balanceo
       if (swinging) { legs[0].rotation.x = legs[1].rotation.x = -0.7; g.rotation.x = 0.15; }

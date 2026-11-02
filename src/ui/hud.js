@@ -1,42 +1,134 @@
 import { TYPES } from '../core/gems.js';
 
 const miniGem = (t) => `<i class="gem gem-${t} mini"></i>`;
-const chips = (g) => TYPES.filter((t) => g[t] > 0).map((t) => `<span class="gc">${miniGem(t)}${g[t]} ${t}</span>`).join('');
+const chips = (g) => TYPES.filter((t) => g[t] > 0).map((t) => `<span class="gc">${miniGem(t)}<b class="gn">${g[t]}</b></span>`).join('');
+const totemIconSvg = `<svg class="totem-icon" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M7 2h10a2 2 0 0 1 2 2v4a3 3 0 0 1-2 2.8V16a3 3 0 0 1-2 2.8V21a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-2.2A3 3 0 0 1 7 16v-5.2A3 3 0 0 1 5 8V4a2 2 0 0 1 2-2zm2 4a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm6 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-3 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>`;
+
+function getActionIcon(kind, size = 20) {
+  if (kind === 'totem') {
+    return `<svg class="act-svg" viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor" aria-hidden="true"><path d="M7 2h10a2 2 0 0 1 2 2v4a3 3 0 0 1-2 2.8V16a3 3 0 0 1-2 2.8V21a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-2.2A3 3 0 0 1 7 16v-5.2A3 3 0 0 1 5 8V4a2 2 0 0 1 2-2zm2 4a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm6 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-3 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>`;
+  }
+  if (kind === 'pad') {
+    return `<svg class="act-svg" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 20c3-1 6-4 7-8s-1-7 2-8 5 1 5 4-2 6-4 7-5 0-6 5"/></svg>`;
+  }
+  if (kind === 'exit') {
+    return `<svg class="act-svg" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"/><path d="M10 12h4m-2-2 2 2-2 2"/></svg>`;
+  }
+  return `<svg class="act-svg" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v4M14 10V4a2 2 0 0 0-4 0v7M10 10.5V6a2 2 0 0 0-4 0v8c0 4 3 7 7 7s7-3 7-7v-3a2 2 0 0 0-4 0"/></svg>`;
+}
+
+function getActionLabel(kind, html) {
+  if (kind === 'totem') return html.includes('Depositar') ? 'Depositar' : 'Entregar';
+  if (kind === 'pad') return 'Látigo';
+  if (kind === 'exit') return 'Viajar';
+  return 'Acción';
+}
 
 export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, onMenu }) {
   root.innerHTML = `
-    <div class="touch"><div class="stick"><div class="knob"></div></div></div>
-    <div class="pill inv">${TYPES.map((t) => `<span class="it">${miniGem(t)}<b data-inv="${t}">0</b></span>`).join('')}</div>
-    <div class="minimap" aria-hidden="true"><canvas width="208" height="208"></canvas></div>
+    <div class="touch">
+      <div class="stick">
+        <div class="stick-ring" aria-hidden="true"></div>
+        <div class="stick-marks" aria-hidden="true">
+          <span class="mark m-n"></span>
+          <span class="mark m-e"></span>
+          <span class="mark m-s"></span>
+          <span class="mark m-w"></span>
+        </div>
+        <div class="knob">
+          <div class="knob-gem" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>
+    <div class="pill inv" aria-label="Inventario de gemas">
+      ${TYPES.map((t) => `
+        <span class="it it-${t}">
+          <span class="gem-slot">${miniGem(t)}</span>
+          <b data-inv="${t}">0</b>
+        </span>
+      `).join('')}
+    </div>
+    <div class="minimap" aria-hidden="true">
+      <div class="minimap-bezel"></div>
+      <canvas width="208" height="208"></canvas>
+      <div class="minimap-north"></div>
+      <div class="minimap-shine"></div>
+    </div>
+    <div class="layer" aria-live="polite"><span class="lv" data-layer-dots></span><b data-layer-name></b></div>
     <div class="pill goalpill" data-goalpill></div>
     <p class="hint" data-hint></p>
     <div class="topright">
-      <button class="hbtn menu" data-act="menu" aria-label="Menú de niveles">☰</button>
-      <button class="hbtn mix" data-act="blueprint" aria-label="Abrir mezclador de gemas">◆ Mezclar</button>
+      <button class="hbtn menu" data-act="menu" aria-label="Menú de niveles">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+          <line x1="4" y1="7" x2="20" y2="7"></line>
+          <line x1="4" y1="12" x2="20" y2="12"></line>
+          <line x1="4" y1="17" x2="20" y2="17"></line>
+        </svg>
+      </button>
+      <button class="hbtn mix" data-act="blueprint" aria-label="Abrir mezclador de gemas">
+        <span class="mix-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L3 9l9 13 9-13-9-7z"></path>
+            <path d="M3 9h18"></path>
+            <path d="M12 2v20"></path>
+          </svg>
+        </span>
+        <span class="mix-text">Mezclar</span>
+      </button>
     </div>
-    <button class="bubble" data-act="interact"></button>
+    <button class="bubble" data-act="interact" aria-label="Interactuar"></button>
+    <button class="action-btn" data-act="interact" aria-label="Acción">
+      <span class="action-icon"></span>
+      <span class="action-label"></span>
+    </button>
     <div class="toast" role="status"></div>
     <div class="dep" role="dialog" aria-label="Depositar gemas">
-      <h3 data-dep-title></h3><p data-dep-sub></p>
+      <div class="dep-header">
+        <h3 data-dep-title></h3>
+        <p data-dep-sub></p>
+      </div>
       <div class="row">
         <button class="hbtn rb" data-dep="-1" aria-label="Menos">−</button>
         <div class="num"><i class="gem" data-dep-gem></i><span data-dep-n>0</span></div>
         <button class="hbtn rb" data-dep="1" aria-label="Más">+</button>
       </div>
-      <div class="acts"><button class="hbtn alt" data-dep="cancel">Cancelar</button><button class="hbtn ok" data-dep="ok">Depositar</button></div>
+      <div class="acts">
+        <button class="hbtn alt" data-dep="cancel">Cancelar</button>
+        <button class="hbtn ok" data-dep="ok">Depositar</button>
+      </div>
       <div class="split" data-dep-split></div>
     </div>
     <div class="rot">↻ Mejor en horizontal: gira el dispositivo</div>
     <div class="fade"></div>
-    <div class="win"><div class="win-card"><h2 data-win-title></h2><p data-win-text></p>
-      <div class="win-actions"><button class="hbtn alt" data-act="restart">Repetir</button><button class="hbtn" data-act="next">Siguiente</button></div></div></div>`;
+    <div class="win">
+      <div class="win-card">
+        <div class="win-trophy" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#f5c542" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+            <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+            <path d="M4 22h16"></path>
+            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
+            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
+            <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
+          </svg>
+        </div>
+        <h2 data-win-title></h2>
+        <p data-win-text></p>
+        <div class="win-actions">
+          <button class="hbtn alt" data-act="restart">Repetir</button>
+          <button class="hbtn ok" data-act="next">Siguiente</button>
+        </div>
+      </div>
+    </div>`;
+
   const $ = (s) => root.querySelector(s);
-  const toastEl = $('.toast'), bubbleEl = $('.bubble'), fadeEl = $('.fade'), winEl = $('.win'), depEl = $('.dep');
+  const toastEl = $('.toast'), bubbleEl = $('.bubble'), actionBtnEl = $('.action-btn'), fadeEl = $('.fade'), winEl = $('.win'), depEl = $('.dep');
   let toastTimer = 0, bubbleKey = '', dep = null;
 
-  // La burbuja de acción se mueve con la cámara: responde al tocar (pointerdown) para no perder el
-  // toque si se desplaza entre pulsar y soltar. El teclado (Enter/Espacio) sigue funcionando vía click.
+  // Acciones táctiles inmediatas: responde en pointerdown para 0 latencia táctil
   bubbleEl.addEventListener('pointerdown', (e) => { e.preventDefault(); onInteract(); });
+  actionBtnEl.addEventListener('pointerdown', (e) => { e.preventDefault(); onInteract(); });
+
   root.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
@@ -64,26 +156,62 @@ export function createHud(root, { onBlueprint, onInteract, onRestart, onNext, on
   const hud = {
     touchLayer: $('.touch'),
     minimapCanvas: $('.minimap canvas'),
-    setInventory(inv) { for (const t of TYPES) $(`[data-inv="${t}"]`).textContent = inv[t]; },
+    setInventory(inv) {
+      for (const t of TYPES) {
+        const el = $(`[data-inv="${t}"]`);
+        if (el) el.textContent = inv[t];
+      }
+    },
     // summary: { exact:[{short,goal,done}], groups:[{type,total,got,parts:[{short,n}],done}], progress:{done,total} }
     setSummary(sm) {
       const multi = sm.progress.total > 1;
-      const exact = sm.exact.map((t) => `<span class="tt${t.done ? ' done' : ''}">${multi ? `<small>${t.short}</small>` : ''}${chips(t.goal)}${t.done ? '<b>✓</b>' : ''}</span>`).join('');
-      const groups = sm.groups.map((g) => `<span class="tt grp${g.done ? ' done' : ''}"><small>Σ</small><span class="gc sum">${miniGem(g.type)}${g.got}/${g.total} ${g.type}</span>${g.parts.map((p) => `<small>${p.short} ${p.n}</small>`).join('')}${g.done ? '<b>✓</b>' : ''}</span>`).join('');
-      const prog = multi ? `<span class="prog"><small>Tótems</small><b>${sm.progress.done}/${sm.progress.total}</b></span>` : '<small>Tótem</small>';
+      const exact = sm.exact.map((t) => `
+        <span class="tt${t.done ? ' done' : ''}">
+          ${multi && t.short ? `<small class="t-short">${t.short}</small>` : ''}
+          ${chips(t.goal)}
+          ${t.done ? '<b class="chk">✓</b>' : ''}
+        </span>
+      `).join('');
+      const groups = sm.groups.map((g) => `
+        <span class="tt grp${g.done ? ' done' : ''}">
+          <small class="t-sigma">Σ</small>
+          <span class="gc sum">${miniGem(g.type)}<b>${g.got}/${g.total}</b></span>
+          ${g.parts.map((p) => `<small class="t-part">${p.short} ${p.n}</small>`).join('')}
+          ${g.done ? '<b class="chk">✓</b>' : ''}
+        </span>
+      `).join('');
+      const prog = multi
+        ? `<span class="prog">${totemIconSvg}<b>${sm.progress.done}/${sm.progress.total}</b></span>`
+        : `<span class="prog single">${totemIconSvg}</span>`;
       $('[data-goalpill]').innerHTML = prog + groups + exact;
     },
+    // Capa actual (pradera / bosque / profundo): nombre + indicador de altura con un punto por capa.
+    setLayer(name, index, total) {
+      $('[data-layer-name]').textContent = name;
+      $('[data-layer-dots]').innerHTML = Array.from({ length: total }, (_, i) => `<i${i === index ? ' class="on"' : ''}></i>`).join('');
+    },
     setHint(text) { $('[data-hint]').textContent = text ?? ''; },
-    // Burbuja anclada al objeto: se fija una vez el contenido y luego solo se mueve.
+    // Burbuja anclada al objeto y botón contextual de acción en esquina inferior derecha
     setBubble(spec) {
       const key = spec ? `${spec.kind}|${spec.html}` : '';
       if (key === bubbleKey) return;
       bubbleKey = key;
-      if (!spec) { bubbleEl.classList.remove('show'); return; }
+      if (!spec) {
+        bubbleEl.classList.remove('show');
+        actionBtnEl.classList.remove('show');
+        return;
+      }
       bubbleEl.className = `bubble show t-${spec.kind}`;
-      bubbleEl.innerHTML = spec.html;
+      bubbleEl.innerHTML = `<span class="b-icon">${getActionIcon(spec.kind, 18)}</span><span class="b-txt">${spec.html}</span>`;
+
+      actionBtnEl.className = `action-btn show t-${spec.kind}`;
+      actionBtnEl.querySelector('.action-icon').innerHTML = getActionIcon(spec.kind, 28);
+      actionBtnEl.querySelector('.action-label').textContent = getActionLabel(spec.kind, spec.html);
     },
-    placeBubble(x, y) { bubbleEl.style.left = `${x.toFixed(1)}px`; bubbleEl.style.top = `${y.toFixed(1)}px`; },
+    placeBubble(x, y) {
+      bubbleEl.style.left = `${x.toFixed(1)}px`;
+      bubbleEl.style.top = `${y.toFixed(1)}px`;
+    },
     toast(msg, ms = 2600) {
       toastEl.textContent = msg; toastEl.classList.add('on');
       clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('on'), ms);

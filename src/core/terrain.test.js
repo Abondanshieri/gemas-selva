@@ -10,7 +10,7 @@ const world = {
     { id: 'profundo', elevation: -4.5, z1: 48 },
   ],
   ramps: [{ boundary: 0, x: 18 }, { boundary: 1, x: -18 }],
-  rivers: [{ z: 0, halfWidth: 3.5 }],
+  rivers: [{ x: 0, halfWidth: 3.5 }],
 };
 const T = createTerrain(world);
 
@@ -49,7 +49,7 @@ function stroll(x, z, dx, dz, steps) {
 }
 
 test('se puede SUBIR por la rampa hasta la pradera', () => {
-  const [, z] = stroll(18, -4, 0, -1, 400);   // desde el bosque, hacia el norte, por la rampa
+  const [, z] = stroll(18, -4, 0, -1, 400);   // desde el bosque (lejos del río), hacia el norte, por la rampa
   assert.ok(z < -22, `quedó en z=${z.toFixed(1)}`);
   assert.ok(T.height(18, z) > 3.5);
 });
@@ -69,10 +69,12 @@ test('contra el acantilado se desliza en vez de atascarse', () => {
   assert.ok(x > -6.5);
 });
 
-test('el río es un cauce más bajo que sus orillas', () => {
-  assert.ok(T.height(0, 0) < T.height(0, 8) - 1.5);
-  assert.ok(T.waterY(world.rivers[0]) > T.height(0, 0));   // el agua cubre el fondo
-  assert.ok(T.waterY(world.rivers[0]) < T.height(0, 8));   // y queda por debajo de la orilla
+test('el río (norte-sur) es un cauce más bajo que sus orillas y baja con cada capa', () => {
+  assert.ok(T.height(0, 0) < T.height(8, 0) - 1.5);
+  assert.ok(T.waterY(world.rivers[0], 0) > T.height(0, 0));   // el agua cubre el fondo
+  assert.ok(T.waterY(world.rivers[0], 0) < T.height(8, 0));   // y queda por debajo de la orilla
+  assert.ok(T.waterY(world.rivers[0], -30) > T.waterY(world.rivers[0], 0) + 4);
+  assert.ok(T.waterY(world.rivers[0], 30) < T.waterY(world.rivers[0], 0) - 4);
 });
 
 test('el borde del círculo sube como un cuenco', () => {

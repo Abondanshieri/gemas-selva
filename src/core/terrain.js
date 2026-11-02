@@ -6,7 +6,7 @@
 //   radius,
 //   zones:  [{ id, name, theme, elevation, z1 }]   // ordenadas de norte (z<0) a sur; z1 = límite sur de la capa
 //   ramps:  [{ boundary, x }]                      // boundary = índice del límite entre zones[i] y zones[i+1]
-//   rivers: [{ z, halfWidth, anchors, waterfall }]
+//   rivers: [{ x, halfWidth, anchors:[{z}], waterfall }]   // el río corre de norte a sur, cruza TODAS las capas
 // }
 
 export const RAMP_W = 12;        // ancho (en z) del tramo inclinado de una rampa
@@ -37,9 +37,9 @@ export function createTerrain(world) {
     }
     return e;
   };
-  const carve = (z) => rivers.reduce((s, r) => s - 2.4 * (1 - smooth(r.halfWidth, r.halfWidth + 2.6, Math.abs(z - r.z))), 0);
+  const carve = (x) => rivers.reduce((s, r) => s - 2.4 * (1 - smooth(r.halfWidth, r.halfWidth + 2.6, Math.abs(x - r.x))), 0);
   const rim = (x, z) => 8 * smooth(radius - 2, radius + 10, Math.hypot(x, z)); // borde: el círculo es un cuenco
-  const height = (x, z) => noise(x, z) + terrace(x, z) + carve(z) + rim(x, z);
+  const height = (x, z) => noise(x, z) + terrace(x, z) + carve(x) + rim(x, z);
 
   // Coordenada continua de capa (0 = primera, n-1 = última): sirve para mezclar ambientes sin saltos.
   const zoneCoord = (z) => { let c = 0; for (let i = 0; i < zones.length - 1; i++) c += smooth(zones[i].z1 - 7, zones[i].z1 + 7, z); return c; };
@@ -52,7 +52,7 @@ export function createTerrain(world) {
   return {
     height, terrace, zoneCoord, slopeAt, rampMask,
     zoneAt: (z) => zoneByZ(zones, z),
-    waterY: (river) => terrace(0, river.z) - 0.55,
+    waterY: (river, z) => terrace(river.x, z) - 0.55,   // el agua baja en escalones: una cascada en cada acantilado
   };
 }
 

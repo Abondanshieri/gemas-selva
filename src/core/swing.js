@@ -4,11 +4,13 @@
 
 export const mirror = (p, anchor) => ({ x: 2 * anchor.x - p.x, z: 2 * anchor.z - p.z });
 
+// El río corre de norte a sur en x = river.x; las orillas son Oeste (x < river.x) y Este (x > river.x).
+// El ancla cuelga sobre el río en { x: river.x, z }.
 export const padsOf = (anchor, river) => {
   const off = river.halfWidth + 4;
   return [
-    { x: anchor.x, z: river.z - off, side: 'N' },
-    { x: anchor.x, z: river.z + off, side: 'S' },
+    { x: river.x - off, z: anchor.z, side: 'O' },
+    { x: river.x + off, z: anchor.z, side: 'E' },
   ];
 };
 
@@ -31,4 +33,4 @@ export const swingPoint = (p0, p1, u, arc = 2.6) => {
 
 // Cruzar solo tiene sentido si el aterrizaje cae en la orilla opuesta, fuera del agua.
 export const landsAcross = (p0, p1, river) =>
-  Math.sign(p0.z - river.z) !== Math.sign(p1.z - river.z) && Math.abs(p1.z - river.z) > river.halfWidth + 0.5;
+  Math.sign(p0.x - river.x) !== Math.sign(p1.x - river.x) && Math.abs(p1.x - river.x) > river.halfWidth + 0.5;

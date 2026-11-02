@@ -1,29 +1,30 @@
 import * as THREE from 'three';
-import { buildWorld, ANCHOR_Y } from './world.js';
-import { createPlayer, createGem, createTotem, createExit, createPad, createRope } from './props.js';
+import { buildWorld, lookAtLayer } from './world.js';
+import { createPlayer, createGem, createTotem, createPad, createRope } from './props.js';
 import { createInput } from './input.js';
 import { angleLerp } from './util.js';
+import { createSprintTracker, BASE_SPEED, BASE_FOV, SPRINT_FOV } from './sprint.js';
 import { createStore } from '../core/store.js';
 import { createInventory, TYPES } from '../core/gems.js';
 import { createLevelState } from '../core/levelState.js';
 import { formatGoal } from '../core/levelLogic.js';
 import { mirror, findPad, padsOf, landsAcross, swingPoint } from '../core/swing.js';
+import { walk } from '../core/terrain.js';
 import { sceneOf } from '../levels/index.js';
 import { createHud } from '../ui/hud.js';
 import { createMinimap } from '../ui/minimap.js';
 import { mountBlueprint } from '../ui/blueprint.js';
 
-const SPEED = 5.6, PLAYER_R = 0.4, CAM_DIST = 8.2;
+const SPEED = BASE_SPEED, PLAYER_R = 0.4, CAM_DIST = 8.2;
 const LASH_T = 0.3, SWING_T = 1.7;
 const MAX_PR = Math.min(devicePixelRatio || 1, 1.75);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const mainType = (td, ls) => (td.sum ? ls.sumType(td) : TYPES.find((t) => td.goal[t] > 0));
 
 export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, onMenu }) {
   // ---------- Renderer (una sola vez) ----------
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: MAX_PR < 1.5, powerPreference: 'high-performance' });
   let pr = MAX_PR;
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.3, 70);
+  const camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.3, 70);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xa8d8b9);
   scene.fog = new THREE.Fog(0xa8d8b9, 22, 62);
@@ -40,16 +41,19 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
   // ---------- Estado ----------
   const store = createStore(createInventory());
   let level = null, def = null, world = null, ls = null;
-  let gems = [], totems = [], exits = [], pads = [], padPts = [];
+  let gems = [], totems = [], pads = [], padPts = [];
+  let sides = [], layer = -1;   // sides: de qué orilla de cada río está el jugador; layer: capa actual
   const collected = new Set();
   let mode = 'menu';            // 'menu' | 'play' | 'blueprint'
   let busy = false, won = false, swing = null, hintTimer = 0;
   let action = { kind: null, ref: null, anchor: null };
   const pos = new THREE.Vector3();
-  let yaw = 0, heading = 0, pitch = 0.58, side = 1;
-  let raf = 0, last = performance.now(), t = 0, frames = 0, acc = 0, mapT = 0;
+  let yaw = 0, heading = 0, pitch = 0.58;
+  let raf = 0, last = performance.now(), t = 0, frames = 0, acc = 0, mapT = 0, animT = 0;
+  const sprintTracker = createSprintTracker();
   const camPos = new THREE.Vector3();
   const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), proj = new THREE.Vector3();
+  const look = { sky: new THREE.Color(), near: 22, far: 62 };
 
   const resize = () => {
     renderer.setPixelRatio(pr);
@@ -77,6 +81,7 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
   function pause() {
     cancelAnimationFrame(raf); raf = 0;
     input.reset();
+    sprintTracker.reset();
     if (mode === 'play') mode = 'menu';
   }
   function resume() {
@@ -89,6 +94,8 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
     hud.setBubble(null);
     cancelAnimationFrame(raf); raf = 0; // el último cuadro queda visible tras la ventana: no se gasta GPU
     input.reset();
+    sprintTracker.reset();
+    camera.fov = BASE_FOV; camera.updateProjectionMatrix();
     overlay.hidden = false;
   }
   function closeBlueprint() {
@@ -125,19 +132,27 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
   function disposeScene() {
     for (const g of gems) scene.remove(g.object);
     for (const x of totems) { scene.remove(x.object); x.dispose(); }
-    for (const x of exits) { scene.remove(x.object); x.dispose(); }
     for (const x of pads) { scene.remove(x.object); x.dispose(); }
-    gems = []; totems = []; exits = []; pads = []; padPts = [];
+    gems = []; totems = []; pads = []; padPts = [];
     world?.dispose();
   }
 
-  function loadScene(id, spawn) {
+  const laneLim = (r) => r.halfWidth + 0.4;
+  const syncSides = () => world.rivers.forEach((r, i) => { const dx = pos.x - r.x; if (Math.abs(dx) >= laneLim(r)) sides[i] = Math.sign(dx); });
+  const layerOf = (z) => def.zones.indexOf(world.terrain.zoneAt(z));
+  const findPadAny = () => {
+    for (const r of world.rivers) {
+      const hit = findPad(pos, r.anchors.map((a) => ({ x: r.x, z: a.z })), r);
+      if (hit) return { ...hit, river: r };
+    }
+    return null;
+  };
+
+  function loadScene(id) {
     disposeScene();
     def = sceneOf(level, id);
     world = buildWorld(scene, def);
     const h = world.height;
-    scene.background.set(world.theme.sky);
-    scene.fog.color.set(world.theme.sky);
 
     def.gems.forEach((g, i) => {
       const gid = `${level.id}/${def.id}/${i}`;
@@ -150,35 +165,45 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
       world.grid.add(x.x, x.z, 1.4);
       scene.add(x.object); totems.push(x);
     }
-    for (const e of def.exits) {
-      const x = createExit(e, h);
-      world.grid.add(x.x, x.z, 1.0);
-      scene.add(x.object); exits.push(x);
-    }
-    if (world.river) {
-      for (const a of world.river.anchors) {
-        for (const p of padsOf({ x: a.x, z: world.river.z }, world.river)) {
+    for (const r of world.rivers) {
+      for (const a of r.anchors) {
+        for (const p of padsOf({ x: r.x, z: a.z }, r)) {
           const pad = createPad(p.x, p.z, h);
           scene.add(pad.object); pads.push(pad); padPts.push({ x: p.x, z: p.z });
         }
       }
     }
 
-    const [sx, sz] = spawn ?? def.playerStart;
+    const [sx, sz] = def.playerStart;
     pos.set(sx, h(sx, sz), sz);
-    side = world.river ? Math.sign(sz - world.river.z) || 1 : 1;
-    // Mirar hacia lo importante: el río si lo hay; si no, el primer tótem/gema/salida.
-    const look = world.river ? [world.river.anchors[0].x, world.river.z] : (def.totems[0]?.pos ?? def.gems[0]?.pos ?? def.exits[0]?.pos ?? [0, -10]);
-    yaw = Math.atan2(sx - look[0], sz - look[1]);
+    sides = world.rivers.map((r) => Math.sign(sx - r.x) || 1);
+    layer = layerOf(sz);
+    // Mirar hacia el primer tótem.
+    const target = def.totems[0]?.pos ?? def.gems[0]?.pos ?? [0, -10];
+    yaw = Math.atan2(sx - target[0], sz - target[1]);
     heading = yaw + Math.PI;
     camPos.set(pos.x + Math.sin(yaw) * 4, pos.y + 6, pos.z + Math.cos(yaw) * 4);
+    applyLook();
     action = { kind: null, ref: null, anchor: null }; hud.setBubble(null);
+    hud.setLayer?.(def.zones[layer].name, layer, def.zones.length);
     refreshGoals();
+  }
+
+  // Cielo y niebla cambian de forma continua con la capa: la pradera es abierta y luminosa, el profundo es denso y oscuro.
+  function applyLook() {
+    lookAtLayer(world.themes, world.terrain.zoneCoord(pos.z), look);
+    scene.background.copy(look.sky);
+    scene.fog.color.copy(look.sky);
+    scene.fog.near = look.near; scene.fog.far = look.far;
+    const far = Math.max(70, look.far + 8);
+    if (camera.far !== far) { camera.far = far; camera.updateProjectionMatrix(); }
   }
 
   function loadLevel(lv) {
     level = lv; won = false; busy = false; swing = null;
-    hud.closeDeposit(); rope.hide(); player.pose(false);
+    hud.closeDeposit(); rope.hide(); player.pose(false); layer = -1;
+    sprintTracker.reset(); animT = 0;
+    camera.fov = BASE_FOV; camera.updateProjectionMatrix();
     disposeScene();            // antes de tocar el estado: los tótems viejos no deben consultar el nivel nuevo
     collected.clear();
     ls = createLevelState(lv);
@@ -192,20 +217,11 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
     resume();
   }
 
-  async function travel(exit) {
-    busy = true; input.reset(); hud.setBubble(null);
-    hud.fade(true); await sleep(280);
-    loadScene(exit.def.to, exit.def.spawn);
-    await sleep(80);
-    hud.fade(false);
-    hud.toast(`📍 ${def.name}`);
-    busy = false;
-  }
-
   // ---------- Acciones ----------
   function checkWin() {
     if (!ls.complete()) return false;
     won = true; hud.setBubble(null); action = { kind: null, ref: null, anchor: null };
+    sprintTracker.reset();
     const extra = Object.entries(store.get()).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(' · ');
     onWin?.(level);
     hud.showWin(`¡Nivel ${level.id} superado!`, extra ? `Te sobraron ${extra}.` : 'Entrega exacta.', level.id < 4);
@@ -236,6 +252,7 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
     }
     const group = ls.totems.filter((o) => o.sum === td.sum);
     busy = true; input.reset(); hud.setBubble(null);
+    sprintTracker.reset();
     hud.openDeposit({
       title: `Depositar en ${td.label ?? 'el tótem'}`,
       sub: `Entre los tótems hay que sumar ${s.total} ${type}. Tú eliges el reparto.`,
@@ -253,17 +270,18 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
   }
 
   function startSwing(hit) {
-    const river = world.river;
-    const anchor = { x: hit.anchor.x, z: river.z };
+    const river = hit.river;
+    const anchor = { x: river.x, z: hit.anchor.z };
     const p0 = { x: pos.x, z: pos.z }, p1 = mirror(p0, anchor);
     if (!landsAcross(p0, p1, river)) { hud.toast('Colócate sobre el aro verde de la orilla.'); return; }
     swing = {
       u: 0, p0, p1,
       y0: pos.y, y1: world.height(p1.x, p1.z),
-      anchor: new THREE.Vector3(anchor.x, ANCHOR_Y, anchor.z),
+      anchor: new THREE.Vector3(anchor.x, world.anchorY(river, anchor), anchor.z),
     };
     heading = Math.atan2(p1.x - p0.x, p1.z - p0.z);
     player.pose(true);
+    sprintTracker.reset();
     input.reset(); hud.setBubble(null);
   }
 
@@ -271,7 +289,6 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
     if (mode !== 'play' || busy || won || swing) return;
     if (action.kind === 'pad') startSwing(action.ref);
     else if (action.kind === 'totem') (action.ref.isSum ? openDeposit : deliver)(action.ref);
-    else if (action.kind === 'exit') travel(action.ref);
   }
 
   // ---------- Bucle ----------
@@ -293,7 +310,7 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
     if (k >= 1) { // aterriza
       pos.set(s.p1.x, s.y1, s.p1.z);
       swing = null; rope.hide(); player.pose(false);
-      side = Math.sign(pos.z - world.river.z) || 1;
+      syncSides();
       hud.toast('¡Al otro lado!', 1400);
     }
   }
@@ -301,28 +318,17 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
   const bubbleHtml = {
     totem: (x) => (x.isSum ? `Depositar ${ls.sumType(x.def)}` : `Entregar · ${formatGoal(x.def.goal)}`),
     pad: () => 'Látigo',
-    exit: (e) => `→ ${e.def.label}`,
   };
 
   function updateAction() {
     let next = { kind: null, ref: null, anchor: null };
     if (!won && !swing && !busy) {
-      if (world.river) {
-        const anchors = world.river.anchors.map((a) => ({ x: a.x, z: world.river.z }));
-        const hit = findPad(pos, anchors, world.river);
-        if (hit) next = { kind: 'pad', ref: hit, anchor: tmpA.set(hit.pad.x, world.height(hit.pad.x, hit.pad.z) + 2.6, hit.pad.z).clone() };
-      }
+      const hit = findPadAny();
+      if (hit) next = { kind: 'pad', ref: hit, anchor: tmpA.set(hit.pad.x, world.height(hit.pad.x, hit.pad.z) + 2.6, hit.pad.z).clone() };
       if (!next.kind) {
         for (const x of totems) {
           if (!ls.isDone(x.def) && (x.x - pos.x) ** 2 + (x.z - pos.z) ** 2 < 3.6 * 3.6) {
             next = { kind: 'totem', ref: x, anchor: x.object.position.clone().setY(x.object.position.y + 2.7) }; break;
-          }
-        }
-      }
-      if (!next.kind) {
-        for (const e of exits) {
-          if ((e.x - pos.x) ** 2 + (e.z - pos.z) ** 2 < e.radius * e.radius) {
-            next = { kind: 'exit', ref: e, anchor: e.object.position.clone().setY(e.object.position.y + 3.2) }; break;
           }
         }
       }
@@ -347,10 +353,10 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
     if (now - mapT < 66) return;
     mapT = now;
     drawMinimap({
-      pos, yaw, bounds: def.bounds, river: world.river, paths: world.paths, pads: padPts,
-      ground: `#${world.theme.g2.toString(16).padStart(6, '0')}`,
+      pos, yaw, bounds: def.radius, rivers: world.rivers, paths: world.paths, pads: padPts, layer,
+      zones: def.zones.map((z, i) => ({ z1: z.z1, color: `#${world.themes[i].g2.toString(16).padStart(6, '0')}` })),
+      ramps: (def.ramps ?? []).map((r) => ({ x: r.x, z: def.zones[r.boundary].z1 })),
       gems: gems.map((g) => ({ x: g.x, z: g.z, type: g.type })),
-      exits: exits.map((e) => ({ x: e.x, z: e.z })),
       totems: totems.map((x) => ({ x: x.x, z: x.z, type: mainType(x.def, ls), done: ls.isDone(x.def) })),
     });
   }
@@ -376,6 +382,7 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
     let mag = 0;
     if (swing) {
       updateSwing(dt);
+      sprintTracker.reset();
       player.shadow.position.y = (world.height(pos.x, pos.z) - pos.y) + 0.03;
     } else {
       // Movimiento relativo a la cámara
@@ -383,24 +390,40 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
       r.set(Math.cos(yaw), 0, -Math.sin(yaw));
       dir.set(0, 0, 0).addScaledVector(r, inp.x).addScaledVector(f, inp.y);
       mag = Math.min(1, dir.length());
-      if (!won && !busy && mag > 0.05) {
-        dir.normalize();
-        pos.addScaledVector(dir, SPEED * mag * dt);
+      const moving = !won && !busy && mag > 0.05;
+      if (moving) dir.normalize();
+
+      const { speed, sprintFactor } = sprintTracker.update(dt, dir.x, dir.z, moving ? mag : 0);
+
+      if (moving) {
+        const k = speed * mag * dt;
+        [pos.x, pos.z] = walk(world.height, pos.x, pos.z, dir.x * k, dir.z * k);   // los acantilados no se trepan; las rampas sí
         heading = angleLerp(heading, Math.atan2(dir.x, dir.z), Math.min(1, dt * 14));
       } else mag = 0;
       const d = Math.hypot(pos.x, pos.z);
       if (d > def.bounds) { pos.x *= def.bounds / d; pos.z *= def.bounds / d; }
       world.grid.resolve(pos, PLAYER_R);
-      if (world.river) { // el agua es una barrera: solo se cruza con el látigo
-        const lim = world.river.halfWidth + 0.4, dz = pos.z - world.river.z;
-        if (Math.abs(dz) < lim) pos.z = world.river.z + side * lim; else side = Math.sign(dz);
-      }
+      world.rivers.forEach((r, i) => { // el agua es una barrera: solo se cruza con el látigo
+        const lim = laneLim(r), dx = pos.x - r.x;
+        if (Math.abs(dx) < lim) pos.x = r.x + sides[i] * lim; else sides[i] = Math.sign(dx);
+      });
       pos.y = world.height(pos.x, pos.z);
       player.shadow.position.y = 0.03;
-      player.animate(t, mag);
+      animT += dt * (mag > 0.05 ? sprintFactor : 1);
+      player.animate(animT, mag * sprintFactor);
     }
     player.root.position.copy(pos);
     player.body.rotation.y = heading;
+
+    // FOV dinámico suave durante la carrera (vuelve a BASE_FOV al frenar)
+    const targetFov = BASE_FOV + (SPRINT_FOV - BASE_FOV) * sprintTracker.sprint;
+    if (Math.abs(camera.fov - targetFov) > 0.01) {
+      camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-dt * 6));
+      camera.updateProjectionMatrix();
+    } else if (camera.fov !== targetFov) {
+      camera.fov = targetFov;
+      camera.updateProjectionMatrix();
+    }
 
     // Cámara en tercera persona con suavizado
     want.set(
@@ -408,6 +431,7 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
       pos.y + 1.5 + Math.sin(pitch) * CAM_DIST,
       pos.z + Math.cos(yaw) * Math.cos(pitch) * CAM_DIST,
     );
+    want.y = Math.max(want.y, world.height(want.x, want.z) + 1.2);   // la cámara nunca se mete bajo el terreno
     camPos.lerp(want, 1 - Math.exp(-dt * 10));
     camera.position.copy(camPos);
     camera.lookAt(pos.x, pos.y + 1.4, pos.z);
@@ -424,9 +448,17 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
       }
     }
     for (const x of totems) x.update(t);
-    for (const x of exits) x.update(t);
     for (const x of pads) x.update(t);
     world.update(t);
+
+    // Capa actual: el nombre se muestra en el HUD y, al subir o bajar, se avisa.
+    const li = layerOf(pos.z);
+    if (li !== layer && !swing) {
+      const up = li < layer; layer = li;
+      hud.setLayer?.(def.zones[li].name, li, def.zones.length);
+      hud.toast(`${up ? '▲ Subiste a' : '▼ Bajaste a'}: ${def.zones[li].name}`, 1800);
+    }
+    applyLook();
 
     renderer.render(scene, camera);   // primero se dibuja; luego se proyecta la burbuja con la cámara ya actualizada
     camera.updateMatrixWorld();
@@ -443,8 +475,16 @@ export function createGame({ canvas, hudRoot, overlay, bpRoot, onWin, onNext, on
     get info() { return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, pr, chunks: world?.meshCount, scene: def?.id }; },
     // --- ayudas de depuración / pruebas ---
     get pos() { return pos; }, get ls() { return ls; },
-    get gems() { return gems; }, get totems() { return totems; }, get exits() { return exits; },
+    get gems() { return gems; }, get totems() { return totems; }, get layer() { return layer; }, get world() { return world; },
     get swinging() { return !!swing; }, get won() { return won; }, get action() { return action.kind; },
-    teleport(x, z) { pos.set(x, world.height(x, z), z); side = world.river ? Math.sign(z - world.river.z) || 1 : 1; },
+    get sprint() { return sprintTracker.sprint; }, get sprinting() { return sprintTracker.isSprinting; },
+    aim(y, p) { yaw = y; if (p !== undefined) pitch = p; },
+    teleport(x, z) {
+      pos.set(x, world.height(x, z), z);
+      sprintTracker.reset();
+      sides = world.rivers.map((r) => Math.sign(x - r.x) || 1);
+      layer = layerOf(z);
+      hud.setLayer?.(def.zones[layer].name, layer, def.zones.length);
+    },
   };
 }

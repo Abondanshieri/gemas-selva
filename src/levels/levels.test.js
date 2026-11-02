@@ -4,6 +4,11 @@ import { LEVELS } from './index.js';
 import { createInventory, compose, decompose, canCompose, canDecompose, canDeliver, spend } from '../core/gems.js';
 import { levelTotems } from '../core/levelLogic.js';
 import { padsOf, mirror, landsAcross } from '../core/swing.js';
+import { createTerrain, zoneByZ, MAX_SLOPE } from '../core/terrain.js';
+import { buildNav, shortest, computePaths, regionOf, RAMP_END } from '../core/paths.js';
+
+const worldOf = (l) => l.scenes[0];
+const layerOf = (w, z) => zoneByZ(w.zones, z).id;
 
 // Objetivos del nivel: los tótems exactos + cada grupo de suma como un único objetivo (el reparto es libre).
 function goalsOf(level) {
@@ -12,10 +17,10 @@ function goalsOf(level) {
   return goals;
 }
 
-// BFS sobre (inventario, objetivos cumplidos): ¿hay forma de ganar con las gemas disponibles?
-function solvable(level, sceneIds = level.scenes.map((s) => s.id)) {
-  const inv0 = createInventory(level.start);
-  for (const s of level.scenes) if (sceneIds.includes(s.id)) for (const g of s.gems) inv0[g.type]++;
+// BFS sobre (inventario, objetivos cumplidos): ¿hay forma de ganar con las gemas de las capas indicadas?
+function solvable(level, layers = null) {
+  const w = worldOf(level), inv0 = createInventory(level.start);
+  for (const g of w.gems) if (!layers || layers.includes(layerOf(w, g.pos[1]))) inv0[g.type]++;
   const goals = goalsOf(level);
   const full = (1 << goals.length) - 1;
   const key = (inv, mask) => `${inv.U},${inv.D},${inv.C},${mask}`;
@@ -33,71 +38,164 @@ function solvable(level, sceneIds = level.scenes.map((s) => s.id)) {
   return false;
 }
 
+// Alcanzabilidad REAL: recorre el terreno a pie con la misma regla de pendiente que el juego
+// (acantilados bloquean, rampas no), el agua bloquea y los aros del látigo unen las dos orillas.
+function walkable(w, { ramps = true } = {}) {
+  const T = createTerrain({ ...w, ramps: ramps ? w.ramps : [] });
+  const step = 0.5, n = Math.ceil((w.radius + 4) * 2 / step), o = -(w.radius + 4);
+  const at = (i, j) => [o + i * step, o + j * step];
+  const idx = (x, z) => [Math.round((x - o) / step), Math.round((z - o) / step)];
+  const H = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) H[j * n + i] = T.height(...at(i, j));
+  const inWater = (x) => (w.rivers ?? []).some((r) => Math.abs(x - r.x) < r.halfWidth + 0.4);
+  const pads = (w.rivers ?? []).flatMap((r) => r.anchors.map((a) => padsOf({ x: r.x, z: a.z }, r)));
+  const seen = new Uint8Array(n * n), q = [];
+  const push = (i, j) => { if (i >= 0 && j >= 0 && i < n && j < n && !seen[j * n + i]) { seen[j * n + i] = 1; q.push(i, j); } };
+  push(...idx(...w.playerStart));
+  for (let h = 0; h < q.length; h += 2) {
+    const i = q[h], j = q[h + 1], [x, z] = at(i, j);
+    for (const [a, b] of pads) { // aro de una orilla → aro de la otra
+      for (const [p, r] of [[a, b], [b, a]]) if ((x - p.x) ** 2 + (z - p.z) ** 2 < 2.6 ** 2) push(...idx(r.x, r.z));
+    }
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const ni = i + di, nj = j + dj;
+      if (ni < 0 || nj < 0 || ni >= n || nj >= n) continue;
+      const [nx, nz] = at(ni, nj), d = Math.hypot(di, dj) * step;
+      if (Math.hypot(nx, nz) > w.bounds || inWater(nx)) continue;
+      if (Math.abs(H[nj * n + ni] - H[j * n + i]) / d > MAX_SLOPE) continue;
+      push(ni, nj);
+    }
+  }
+  return { T, reaches: (x, z) => { const [i, j] = idx(x, z); return !!seen[j * n + i]; } };
+}
+
 for (const level of LEVELS) {
   test(`nivel ${level.id} (${level.name}) tiene solución`, () => assert.equal(solvable(level), true));
 }
 
-test('nivel 1: una sola D en el mapa (hay que descomponer)', () => {
-  assert.deepEqual(LEVELS[0].scenes[0].gems.map((g) => g.type), ['D']);
-});
-
-test('nivel 2: 3 escenarios, un tótem por tipo U, D y C, y hace falta componer', () => {
-  const l = LEVELS[1];
-  assert.equal(l.scenes.length, 3);
-  const totems = levelTotems(l);
-  assert.deepEqual(totems.map((t) => Object.keys(t.goal)[0]).sort(), ['C', 'D', 'U']);
-  assert.deepEqual(new Set(totems.map((t) => t.scene)).size, 3, 'un tótem por escena');
-  const ds = l.scenes.flatMap((s) => s.gems).filter((g) => g.type === 'D').length;
-  assert.ok(ds >= 10, 'para formar la C hacen falta 10 D repartidas por los escenarios');
-  // ninguna escena sola alcanza
-  for (const s of l.scenes) assert.equal(solvable(l, [s.id]), false, `solo ${s.id}`);
-});
-
-test('nivel 3: suma de 8 U repartida entre dos orillas, con cruce posible', () => {
-  const l = LEVELS[2], s = l.scenes[0];
-  assert.deepEqual(l.sums, [{ id: 'suma', type: 'U', total: 8, minEach: 1 }]);
-  assert.deepEqual(s.totems.map((t) => Math.sign(t.pos[1] - s.river.z)).sort(), [-1, 1]);
-  assert.ok(s.totems.every((t) => t.sum === 'suma'));
-  const a = { x: s.river.anchors[0].x, z: s.river.z };
-  for (const pad of padsOf(a, s.river)) assert.ok(landsAcross(pad, mirror(pad, a), s.river));
-});
-
-test('nivel 4: 3 escenas de río, cada una con tótem en cada orilla y su aro de balanceo', () => {
-  const l = LEVELS[3];
-  assert.equal(l.scenes.length, 3);
-  for (const s of l.scenes) {
-    assert.ok(s.river?.anchors?.length >= 1, `${s.id} sin aro`);
-    assert.deepEqual(s.totems.map((t) => Math.sign(t.pos[1] - s.river.z)).sort(), [-1, 1], `${s.id}: un tótem por orilla`);
+test('cantidad de capas: el nivel 1 usa 2, los demás 3 (un círculo dividido)', () => {
+  assert.deepEqual(LEVELS.map((l) => worldOf(l).zones.length), [2, 3, 3, 3]);
+  for (const l of LEVELS) {
+    const w = worldOf(l);
+    assert.equal(l.scenes.length, 1, 'un solo mundo continuo, sin escenas separadas');
+    assert.equal(w.ramps.length, w.zones.length - 1, 'cada límite entre capas tiene su rampa');
+    assert.deepEqual(w.ramps.map((r) => r.boundary).sort(), w.zones.slice(1).map((_, i) => i));
+    assert.ok(w.zones.every((z, i) => i === 0 || z.elevation < w.zones[i - 1].elevation), 'cada capa queda más abajo que la anterior');
   }
+});
+
+test('nivel 1: una sola D en el mapa, arriba en la pradera; el tótem está abajo (hay que descomponer)', () => {
+  const w = worldOf(LEVELS[0]);
+  assert.deepEqual(w.gems.map((g) => g.type), ['D']);
+  assert.equal(layerOf(w, w.gems[0].pos[1]), 'pradera');
+  assert.equal(layerOf(w, w.totems[0].pos[1]), 'bosque');
+  assert.equal(layerOf(w, w.playerStart[1]), 'bosque');
+});
+
+test('nivel 2: un tótem por capa (C arriba, D en medio, U abajo) y hace falta componer', () => {
+  const l = LEVELS[1], w = worldOf(l);
+  const byLayer = Object.fromEntries(w.totems.map((t) => [layerOf(w, t.pos[1]), Object.keys(t.goal)[0]]));
+  assert.deepEqual(byLayer, { pradera: 'C', bosque: 'D', profundo: 'U' });
+  assert.ok(w.gems.filter((g) => g.type === 'D').length >= 10, 'para formar la C hacen falta 10 D repartidas por las capas');
+  for (const z of w.zones) assert.equal(solvable(l, [z.id]), false, `solo la capa ${z.id} no alcanza`);
+});
+
+test('nivel 3: un río norte-sur parte TODAS las capas; suma de 8 U entre orillas oeste y este', () => {
+  const l = LEVELS[2], w = worldOf(l), r = w.rivers[0];
+  assert.equal(w.rivers.length, 1, 'un único río');
+  assert.equal(l.sums[0].type, 'U'); assert.equal(l.sums[0].total, 8);
+  assert.deepEqual(w.totems.map((t) => Math.sign(t.pos[0] - r.x)).sort(), [-1, 1], 'un tótem por orilla');
+  assert.ok(w.totems.every((t) => t.sum === 'suma'));
+  const a = { x: r.x, z: r.anchors[0].z };
+  for (const pad of padsOf(a, r)) assert.ok(landsAcross(pad, mirror(pad, a), r));
+  assert.equal(new Set(w.gems.map((g) => layerOf(w, g.pos[1]))).size, 3, 'hay gemas en las tres capas');
+  assert.equal(solvable(l, ['pradera', 'bosque']), false, 'la D del bosque profundo es imprescindible');
+});
+
+test('nivel 4: UN río cruza las tres capas, con un aro por capa y un tótem en cada orilla de cada capa', () => {
+  const l = LEVELS[3], w = worldOf(l), r = w.rivers[0];
+  assert.equal(w.rivers.length, 1, 'un único río (cascada) para la división');
+  assert.equal(r.anchors.length, 3);
+  assert.deepEqual(r.anchors.map((a) => layerOf(w, a.z)), ['pradera', 'bosque', 'profundo'], 'un aro por capa');
   assert.equal(levelTotems(l).length, 6);
-  // no alcanza con las gemas de las dos primeras escenas: hay que llegar a la tercera
-  assert.equal(solvable(l, ['r1', 'r2']), false);
-});
-
-test('cada exit apunta a una escena existente y su destino tiene el camino de vuelta', () => {
-  for (const l of LEVELS) for (const s of l.scenes) for (const e of s.exits) {
-    const dest = l.scenes.find((x) => x.id === e.to);
-    assert.ok(dest, `${l.id}/${s.id} → ${e.to}`);
-    assert.ok(dest.exits.some((b) => b.to === s.id), `${e.to} no vuelve a ${s.id}`);
-    assert.ok(Math.hypot(...e.spawn) <= dest.bounds, `spawn de ${s.id}→${e.to} fuera de límites`);
-    if (dest.river) assert.ok(Math.abs(e.spawn[1] - dest.river.z) > dest.river.halfWidth + 1, 'spawn en el agua');
-    // el spawn no debe caer dentro del radio de la salida de vuelta (evita rebotes)
-    for (const b of dest.exits) assert.ok(Math.hypot(e.spawn[0] - b.pos[0], e.spawn[1] - b.pos[1]) > 3.6, `spawn pegado a la salida ${b.to}`);
+  for (const zn of w.zones) {
+    const sides = w.totems.filter((t) => layerOf(w, t.pos[1]) === zn.id).map((t) => Math.sign(t.pos[0] - r.x)).sort();
+    assert.deepEqual(sides, [-1, 1], `${zn.id}: un tótem por orilla`);
   }
+  assert.equal(solvable(l, ['pradera', 'bosque']), false, 'hay que llegar hasta el bosque profundo');
 });
 
-test('todo cabe dentro de los límites de su escena (tótems, gemas, salidas, spawn)', () => {
-  for (const l of LEVELS) for (const s of l.scenes) {
-    for (const [x, z] of [s.playerStart, ...s.totems.map((t) => t.pos), ...s.gems.map((g) => g.pos), ...s.exits.map((e) => e.pos)]) {
-      assert.ok(Math.hypot(x, z) <= s.bounds, `${l.id}/${s.id}: (${x},${z}) fuera de ${s.bounds}`);
+test('el río es perpendicular a las capas: las cruza todas y queda lejos de las rampas y de los límites', () => {
+  for (const l of LEVELS) {
+    const w = worldOf(l);
+    for (const r of w.rivers) {
+      for (const rp of w.ramps) assert.ok(Math.abs(r.x - rp.x) >= r.halfWidth + 9, `${l.id}: la rampa x=${rp.x} está pegada al río`);
+      for (const a of r.anchors) for (const zn of w.zones.slice(0, -1)) assert.ok(Math.abs(a.z - zn.z1) >= 12, `${l.id}: aro z=${a.z} pegado al acantilado z=${zn.z1}`);
     }
   }
 });
 
-test('en escenas con río, ningún tótem/gema/salida cae dentro del agua', () => {
-  for (const l of LEVELS) for (const s of l.scenes) if (s.river) {
-    for (const [, z] of [...s.totems.map((t) => t.pos), ...s.gems.map((g) => g.pos), ...s.exits.map((e) => e.pos), s.playerStart]) {
-      assert.ok(Math.abs(z - s.river.z) > s.river.halfWidth + 1, `${l.id}/${s.id}: z=${z} en el río`);
+test('todo está dentro del círculo, en suelo llano, fuera del agua y sin amontonarse', () => {
+  for (const l of LEVELS) {
+    const w = worldOf(l), T = createTerrain(w);
+    const pois = [['inicio', w.playerStart], ...w.totems.map((t) => [t.id, t.pos]), ...w.gems.map((g, i) => [`gema${i}`, g.pos])];
+    const pads = w.rivers.flatMap((r) => r.anchors.flatMap((a) => padsOf({ x: r.x, z: a.z }, r)));
+    for (const [name, [x, z]] of pois) {
+      assert.ok(Math.hypot(x, z) <= w.bounds - 1, `${l.id}/${name} (${x},${z}) fuera del círculo`);
+      assert.ok(T.slopeAt(x, z) < 0.35, `${l.id}/${name} (${x},${z}) en pendiente ${T.slopeAt(x, z).toFixed(2)}`);
+      for (const r of w.rivers) assert.ok(Math.abs(x - r.x) > r.halfWidth + 3, `${l.id}/${name} dentro del río`);
+      if (name !== 'inicio') for (const p of pads) assert.ok(Math.hypot(x - p.x, z - p.z) > 3.6, `${l.id}/${name} dentro del aro`);
+    }
+    for (let i = 0; i < pois.length; i++) for (let j = i + 1; j < pois.length; j++) {
+      const [a, [ax, az]] = pois[i], [b, [bx, bz]] = pois[j];
+      if (a === 'inicio' || b === 'inicio') continue;
+      assert.ok(Math.hypot(ax - bx, az - bz) > 2.4, `${l.id}: ${a} y ${b} están amontonados`);
+    }
+  }
+});
+
+test('se llega a pie a TODO (inicio, tótems, gemas, aros) subiendo por rampas y cruzando con el látigo', () => {
+  for (const l of LEVELS) {
+    const w = worldOf(l), { reaches } = walkable(w);
+    for (const [x, z] of [w.playerStart, ...w.totems.map((t) => t.pos), ...w.gems.map((g) => g.pos)]) {
+      assert.ok(reaches(x, z), `${l.id}: no se llega a (${x},${z}) [${layerOf(w, z)}]`);
+    }
+  }
+});
+
+test('sin rampas las capas quedan aisladas: los acantilados no se trepan', () => {
+  for (const l of LEVELS) {
+    const w = worldOf(l), { reaches } = walkable(w, { ramps: false });
+    const here = layerOf(w, w.playerStart[1]);
+    const others = [...w.totems.map((t) => t.pos), ...w.gems.map((g) => g.pos)].filter(([, z]) => layerOf(w, z) !== here);
+    assert.ok(others.length > 0, `${l.id}: nada fuera de la capa inicial`);
+    for (const [x, z] of others) assert.equal(reaches(x, z), false, `${l.id}: (${x},${z}) alcanzable sin rampa`);
+  }
+});
+
+test('sin látigo, el río corta el mundo en dos orillas', () => {
+  const w = worldOf(LEVELS[2]);
+  const noSwing = { ...w, rivers: w.rivers.map((r) => ({ ...r, anchors: [] })) };
+  const { reaches } = walkable(noSwing);
+  assert.equal(reaches(...w.totems.find((t) => t.id === 'tW').pos), false);
+  assert.equal(reaches(...w.gems.find((g) => g.type === 'D').pos), false);
+});
+
+test('el grafo de navegación (senderos) también conecta todo', () => {
+  for (const l of LEVELS) {
+    const w = worldOf(l), nav = buildNav(w), { dist } = shortest(nav);
+    nav.pois.forEach((p) => assert.ok(Number.isFinite(dist[p]), `${l.id}: ${nav.nodes[p].tag} (${nav.nodes[p].x},${nav.nodes[p].z}) sin camino`));
+    assert.ok(computePaths(w).length > 0);
+  }
+});
+
+test('los senderos cruzan de capa solo por las rampas', () => {
+  for (const l of LEVELS) {
+    const w = worldOf(l);
+    for (const [x1, z1, x2, z2] of computePaths(w)) {
+      if (regionOf(w, x1, z1).split(':')[0] === regionOf(w, x2, z2).split(':')[0]) continue;
+      const ramp = w.ramps.find((r) => Math.abs(r.x - x1) < 0.01 && Math.abs(r.x - x2) < 0.01);
+      assert.ok(ramp, `${l.id}: sendero (${x1},${z1})→(${x2},${z2}) cambia de capa fuera de una rampa`);
     }
   }
 });
