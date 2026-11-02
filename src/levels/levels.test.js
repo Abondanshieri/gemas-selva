@@ -125,6 +125,15 @@ test('nivel 4: UN río cruza las tres capas, con un aro por capa y un tótem en 
   assert.equal(solvable(l, ['pradera', 'bosque']), false, 'hay que llegar hasta el bosque profundo');
 });
 
+test('nivel 4: cada tótem pide exclusivamente un solo tipo de gema (sin mezclas)', () => {
+  const l = LEVELS[3];
+  for (const t of levelTotems(l)) {
+    const types = Object.keys(t.goal).filter((k) => t.goal[k] > 0);
+    assert.equal(types.length, 1, 'el totem ' + t.id + ' pide un solo tipo');
+    assert.ok(t.goal[types[0]] >= 1, 'cantidad >= 1');
+  }
+});
+
 test('el río es perpendicular a las capas: las cruza todas y queda lejos de las rampas y de los límites', () => {
   for (const l of LEVELS) {
     const w = worldOf(l);

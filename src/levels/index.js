@@ -114,9 +114,9 @@ const level4 = {
     totems: [
       { id: 'pO', short: 'O', label: 'Pradera · oeste', pos: [-14, -38], goal: { D: 2 } },
       { id: 'pE', short: 'E', label: 'Pradera · este', pos: [14, -40], goal: { U: 3 } },
-      { id: 'bO', short: 'O', label: 'Bosque · oeste', pos: [-26, 6], goal: { D: 1, U: 2 } },
+      { id: 'bO', short: 'O', label: 'Bosque · oeste', pos: [-26, 6], goal: { D: 2 } },
       { id: 'bE', short: 'E', label: 'Bosque · este', pos: [26, 5], goal: { U: 2 } },
-      { id: 'dO', short: 'O', label: 'Profundo · oeste', pos: [-32, 30], goal: { U: 1, D: 1 } },
+      { id: 'dO', short: 'O', label: 'Profundo · oeste', pos: [-32, 30], goal: { D: 1 } },
       { id: 'dE', short: 'E', label: 'Profundo · este', pos: [22, 38], goal: { D: 3 } },
     ],
   }],
